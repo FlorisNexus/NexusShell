@@ -170,13 +170,6 @@ namespace NexusShell.Services
             RunCommand("git", "init", path);
             RunCommand("git", "add .", path);
             RunCommand("git", "commit -m \"Initial scaffold: " + name + " (" + type + ") with Enterprise Cloud Standards\"", path);
-            
-            // Sync tracks
-            var syncScript = Path.Combine(_settings.ConductorRoot, "sync-tracks.ps1");
-            if (File.Exists(syncScript))
-            {
-                RunCommand("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{syncScript}\"", _settings.ConductorRoot);
-            }
         }
 
         private void RunCommand(string fileName, string args, string workingDir)
