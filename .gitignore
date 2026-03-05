@@ -1,16 +1,48 @@
-# .NET
-bin/
-obj/
+## [Standard Visual Studio Ignore Rules]
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+Log/
+Logs/
+
+# User-specific files
+*.rsuser
+*.suo
 *.user
 *.userosscache
-*.sln.doccache
+*.sln.docstates
+*.patch
+*.diff
 
+# Visual Studio 2015/2017/2019/2022 cache directory
+.vs/
+
+# NuGet Packages
+*.nupkg
+**/packages/*
+!**/packages/build/
+
+# Others
+*.bak
+*.cache
+*.ilk
+*.log
+*.pdb
+*.tmp
+
+## [Nexus Command Center Custom Rules]
 # Nexus Data
 nexus_stats.json
 nexus_history.json
 
 # User Config
 appsettings.json
-
-# VS
-.vs/
