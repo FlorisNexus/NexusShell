@@ -6,9 +6,10 @@
 - **XML Documentation** is mandatory for all public/internal members.
 - UI styling must adhere to the high-fidelity **Spectre.Console** cyberpunk aesthetic.
 
-## 📦 Versioning Mandate
+## 📦 Versioning & Profile Mandate
 - **Critical:** You MUST increment the `APP_VERSION` constant in `Program.cs` at every iteration or after implementing a significant new feature or architectural change.
-- **Alignment:** Always synchronize the version in the PowerShell profile loading message if modified.
+- **PowerShell Sync:** You MUST also update the version number in the PowerShell `$PROFILE` (located at `C:\Users\flori\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`) to ensure the loading message matches the Hub's version.
+- **Alignment:** Always synchronize the version in the PowerShell profile loading message and header if modified.
 
 ## 🚀 Post-Iteration Automation
 - **Mandatory Workflow:** After EVERY significant change or iteration, you MUST:
