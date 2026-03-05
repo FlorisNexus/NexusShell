@@ -25,6 +25,7 @@ namespace NexusShell.Services
         IMarketingService marketingService,
         IJournalService journalService,
         INewProjectService newProjectService,
+        IRegistryService registryService,
         ILayoutService layoutService) : IUserInterface
     {
         private int _selectedIndex = 0;
@@ -84,14 +85,17 @@ namespace NexusShell.Services
                     var projects = projectService.GetProjects();
                     var events = historyService.GetRecentEvents();
 
-                    // 2. Safely update the cache
+                    // 2. Update the Markdown Registry (Legacy sync-tracks logic)
+                    registryService.UpdateRegistry(projects);
+
+                    // 3. Safely update the cache
                     lock (_dataLock)
                     {
                         _currentProjects = projects;
                         _recentEvents = events;
                     }
 
-                    // 3. Trigger redraw
+                    // 4. Trigger redraw
                     _needsRedraw = true;
                 } catch { /* Ignore background errors to prevent crash */ }
 
@@ -101,7 +105,6 @@ namespace NexusShell.Services
 
         private void RenderDashboard()
         {
-            // Use a local copy of data to avoid locking the UI while drawing
             List<ProjectInfo> projectsCopy;
             List<HistoryEvent> eventsCopy;
             lock (_dataLock)
@@ -129,7 +132,6 @@ namespace NexusShell.Services
             var localProjects = projectsCopy.Where(p => p.Track == "LOCAL").ToList();
             var otherProjects = projectsCopy.Where(p => p.Track == "OTHER").ToList();
 
-            // Rebuild flat list for index tracking
             var newFlatMenu = new List<string>(coreMenu);
             foreach(var p in saasProjects) newFlatMenu.Add("PROJ:" + p.Name);
             foreach(var p in localProjects) newFlatMenu.Add("PROJ:" + p.Name);
@@ -138,7 +140,7 @@ namespace NexusShell.Services
 
             if (_selectedIndex >= _flatMenu.Count) _selectedIndex = 0;
 
-            AnsiConsole.MarkupLine("[bold grey]» SELECT OPERATION OR NEURAL TRACK (Async Sync Active)[/]");
+            AnsiConsole.MarkupLine("[bold grey]» SELECT OPERATION OR NEURAL TRACK (Live Dynamic Registry Active)[/]");
             
             for (int i = 0; i < coreMenu.Count; i++)
             {
@@ -149,7 +151,7 @@ namespace NexusShell.Services
             DrawGroup("🏗️ LOCAL HERO TRACK", localProjects, coreMenu.Count + saasProjects.Count);
             DrawGroup("📂 OTHER TRACKS", otherProjects, coreMenu.Count + saasProjects.Count + localProjects.Count);
             
-            AnsiConsole.MarkupLine("\n[dim grey]Arrows: Navigate | Enter: Launch | Background sync is non-blocking.[/]");
+            AnsiConsole.MarkupLine("\n[dim grey]Arrows: Navigate | Enter: Launch | Live Markdown Registry Sync active.[/]");
         }
 
         private void DrawMenuItem(string label, int index)
@@ -280,10 +282,16 @@ namespace NexusShell.Services
         private void ShowMaintenance()
         {
             Console.CursorVisible = true;
-            var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("MAINTENANCE").AddChoices("Refresh Git", "Clear History", "Back"));
+            var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("MAINTENANCE").AddChoices("Force Sync Registry", "Clear History", "Back"));
             Console.CursorVisible = false;
             if (choice == "Back") return;
-            if (choice == "Refresh Git") RunScript("sync-tracks.ps1", true);
+            if (choice == "Force Sync Registry") 
+            { 
+                var projects = projectService.GetProjects();
+                registryService.UpdateRegistry(projects);
+                AnsiConsole.MarkupLine("[green]✅ Tracks Registry updated.[/]");
+                Thread.Sleep(1000);
+            }
             if (choice == "Clear History") { historyService.ClearAll(); Thread.Sleep(500); }
         }
 
@@ -294,7 +302,7 @@ namespace NexusShell.Services
             AnsiConsole.MarkupLine("[bold cyan]NEXUS HELP SYSTEM[/] - Press any key to return.");
             AnsiConsole.MarkupLine("• Use Arrow Keys to navigate the dashboard.");
             AnsiConsole.MarkupLine("• Navigation is now ASYNCHRONOUS and fluid.");
-            AnsiConsole.MarkupLine("• Project status (Git/Stats) syncs in the background every 5s.");
+            AnsiConsole.MarkupLine("• [yellow]Live Registry:[/] The hub automatically maintains 'tracks.md'.");
             Console.ReadKey();
         }
 

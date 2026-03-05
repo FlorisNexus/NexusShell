@@ -21,7 +21,7 @@ namespace NexusShell
     /// </summary>
     public class Program
     {
-        private const string APP_VERSION = "v11.1";
+        private const string APP_VERSION = "v11.2";
 
         /// <summary>
         /// Bootstraps the application, configures DI, and starts the UI.
@@ -65,6 +65,7 @@ namespace NexusShell
 
                     // Core Services
                     services.AddSingleton<ILayoutService, LayoutService>();
+                    services.AddSingleton<IRegistryService, RegistryService>();
                     services.AddSingleton<IHistoryService>(sp => new HistoryService(sp.GetRequiredService<NexusSettings>().ConductorRoot));
                     services.AddSingleton<IProjectService>(sp => new ProjectService(
                         sp.GetRequiredService<NexusSettings>().ReposRoot, 
@@ -92,6 +93,7 @@ namespace NexusShell
                         sp.GetRequiredService<IMarketingService>(),
                         sp.GetRequiredService<IJournalService>(),
                         sp.GetRequiredService<INewProjectService>(),
+                        sp.GetRequiredService<IRegistryService>(),
                         sp.GetRequiredService<ILayoutService>()));
                 });
         }

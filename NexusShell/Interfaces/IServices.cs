@@ -131,4 +131,15 @@ namespace NexusShell.Interfaces
         /// </summary>
         void Execute();
     }
+
+    /// <summary>
+    /// Service for maintaining the markdown tracks registry.
+    /// </summary>
+    public interface IRegistryService
+    {
+        /// <summary>
+        /// Updates the conductor/tracks.md file with the latest project status.
+        /// </summary>
+        void UpdateRegistry(List<ProjectInfo> projects);
+    }
 }
