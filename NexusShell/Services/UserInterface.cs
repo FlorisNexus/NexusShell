@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Spectre.Console;
 using NexusShell.Interfaces;
 using NexusShell.Models;
@@ -12,8 +13,8 @@ using NexusShell.Models;
 namespace NexusShell.Services
 {
     /// <summary>
-    /// Advanced implementation of the Nexus Command Center using a non-blocking Live UI engine.
-    /// Supports real-time dynamic updates even when the user is idle.
+    /// Smooth implementation of the Nexus Hub using an Asynchronous Data Engine.
+    /// Decouples heavy I/O (Git/Disk scanning) from the UI input loop to ensure fluid navigation.
     /// </summary>
     public class UserInterface(
         string reposRoot,
@@ -29,36 +30,30 @@ namespace NexusShell.Services
         private int _selectedIndex = 0;
         private List<string> _flatMenu = new();
         private List<ProjectInfo> _currentProjects = new();
-        private bool _needsRedraw = true;
-        private DateTime _lastRefresh = DateTime.MinValue;
-        private readonly TimeSpan _refreshInterval = TimeSpan.FromSeconds(3);
+        private List<HistoryEvent> _recentEvents = new();
+        private volatile bool _needsRedraw = true;
+        private readonly object _dataLock = new();
 
         /// <inheritdoc />
         public void Run()
         {
             Console.OutputEncoding = Encoding.UTF8;
-            Console.Title = "FLORISNEXUS AI-OS (Live Engine)";
+            Console.Title = "FLORISNEXUS AI-OS (Async Engine)";
             Console.CursorVisible = false;
 
+            // Start Background Data Sync (Heavy Git/Disk I/O)
+            Task.Run(BackgroundDataLoop);
+
+            // UI Input Loop (Instant Response)
             while (true)
             {
                 try {
-                    // 1. Check if we need to refresh due to time or external events
-                    if (DateTime.Now - _lastRefresh > _refreshInterval)
-                    {
-                        _currentProjects = projectService.GetProjects();
-                        _lastRefresh = DateTime.Now;
-                        _needsRedraw = true;
-                    }
-
-                    // 2. Redraw UI if needed
                     if (_needsRedraw)
                     {
                         RenderDashboard();
                         _needsRedraw = false;
                     }
 
-                    // 3. Non-blocking input check
                     if (Console.KeyAvailable)
                     {
                         var key = Console.ReadKey(true);
@@ -66,8 +61,7 @@ namespace NexusShell.Services
                     }
                     else
                     {
-                        // Small sleep to prevent high CPU usage
-                        Thread.Sleep(50);
+                        Thread.Sleep(10); // Ultra-low latency for navigation
                     }
                 } catch (Exception ex) {
                     AnsiConsole.WriteException(ex);
@@ -78,13 +72,49 @@ namespace NexusShell.Services
             }
         }
 
+        /// <summary>
+        /// Background task that performs heavy Git and History operations without blocking the UI.
+        /// </summary>
+        private async Task BackgroundDataLoop()
+        {
+            while (true)
+            {
+                try {
+                    // 1. Fetch data from disk/git
+                    var projects = projectService.GetProjects();
+                    var events = historyService.GetRecentEvents();
+
+                    // 2. Safely update the cache
+                    lock (_dataLock)
+                    {
+                        _currentProjects = projects;
+                        _recentEvents = events;
+                    }
+
+                    // 3. Trigger redraw
+                    _needsRedraw = true;
+                } catch { /* Ignore background errors to prevent crash */ }
+
+                await Task.Delay(5000); // Sync every 5s in background
+            }
+        }
+
         private void RenderDashboard()
         {
+            // Use a local copy of data to avoid locking the UI while drawing
+            List<ProjectInfo> projectsCopy;
+            List<HistoryEvent> eventsCopy;
+            lock (_dataLock)
+            {
+                projectsCopy = new List<ProjectInfo>(_currentProjects);
+                eventsCopy = new List<HistoryEvent>(_recentEvents);
+            }
+
             Console.Clear();
             layoutService.RefreshHeader();
-            ShowHistory();
+            ShowHistory(eventsCopy);
 
-            var menu = new List<string> { 
+            var coreMenu = new List<string> { 
                 "⚡ META-WORKSPACE (UNIFIED)", 
                 "📢 MARKETING ASSISTANT", 
                 "📔 FOUNDER JOURNAL", 
@@ -95,34 +125,31 @@ namespace NexusShell.Services
                 "🔌 EXIT SHELL" 
             };
 
-            var saasProjects = _currentProjects.Where(p => p.Track == "SAAS").ToList();
-            var localProjects = _currentProjects.Where(p => p.Track == "LOCAL").ToList();
-            var otherProjects = _currentProjects.Where(p => p.Track == "OTHER").ToList();
+            var saasProjects = projectsCopy.Where(p => p.Track == "SAAS").ToList();
+            var localProjects = projectsCopy.Where(p => p.Track == "LOCAL").ToList();
+            var otherProjects = projectsCopy.Where(p => p.Track == "OTHER").ToList();
 
-            // Build flat list for navigation
-            _flatMenu = new List<string>(menu);
-            foreach(var p in saasProjects) _flatMenu.Add("PROJ:" + p.Name);
-            foreach(var p in localProjects) _flatMenu.Add("PROJ:" + p.Name);
-            foreach(var p in otherProjects) _flatMenu.Add("PROJ:" + p.Name);
+            // Rebuild flat list for index tracking
+            var newFlatMenu = new List<string>(coreMenu);
+            foreach(var p in saasProjects) newFlatMenu.Add("PROJ:" + p.Name);
+            foreach(var p in localProjects) newFlatMenu.Add("PROJ:" + p.Name);
+            foreach(var p in otherProjects) newFlatMenu.Add("PROJ:" + p.Name);
+            _flatMenu = newFlatMenu;
 
-            // Ensure selection stays within bounds if projects changed
             if (_selectedIndex >= _flatMenu.Count) _selectedIndex = 0;
 
-            // DRAW MENU
-            AnsiConsole.MarkupLine("[bold grey]» SELECT OPERATION OR NEURAL TRACK (Live Update Active)[/]");
+            AnsiConsole.MarkupLine("[bold grey]» SELECT OPERATION OR NEURAL TRACK (Async Sync Active)[/]");
             
-            // Core Operations
-            for (int i = 0; i < menu.Count; i++)
+            for (int i = 0; i < coreMenu.Count; i++)
             {
-                DrawMenuItem(menu[i], i);
+                DrawMenuItem(coreMenu[i], i);
             }
 
-            // Project Groups
-            DrawGroup("🌍 GLOBAL SAAS TRACK", saasProjects, menu.Count);
-            DrawGroup("🏗️ LOCAL HERO TRACK", localProjects, menu.Count + saasProjects.Count);
-            DrawGroup("📂 OTHER TRACKS", otherProjects, menu.Count + saasProjects.Count + localProjects.Count);
+            DrawGroup("🌍 GLOBAL SAAS TRACK", saasProjects, coreMenu.Count);
+            DrawGroup("🏗️ LOCAL HERO TRACK", localProjects, coreMenu.Count + saasProjects.Count);
+            DrawGroup("📂 OTHER TRACKS", otherProjects, coreMenu.Count + saasProjects.Count + localProjects.Count);
             
-            AnsiConsole.MarkupLine("\n[dim grey]Use Arrow Keys to navigate, Enter to launch. Auto-sync every 3s.[/]");
+            AnsiConsole.MarkupLine("\n[dim grey]Arrows: Navigate | Enter: Launch | Background sync is non-blocking.[/]");
         }
 
         private void DrawMenuItem(string label, int index)
@@ -154,6 +181,22 @@ namespace NexusShell.Services
             }
         }
 
+        private string GetProjectDisplayName(ProjectInfo p)
+        {
+            string icon = p.Type switch { "Mono" => "🐙", "Multi" => "📦", _ => "📁" };
+            string branchInfo = p.Branch != "-" ? $" [grey][[{p.Branch}]][/]" : "";
+            
+            var statusParts = new List<string>();
+            if (p.HasChanges) statusParts.Add("[yellow]![/]");
+            if (!string.IsNullOrEmpty(p.RemoteStatus)) statusParts.Add($"[blue]{p.RemoteStatus}[/]");
+            string status = statusParts.Count > 0 ? $" {string.Join(" ", statusParts)}" : "";
+
+            string stats = p.OpenCount > 0 ? $" [blue]({p.OpenCount}x)[/] [dim grey]last: {(p.LastOpened.HasValue ? p.LastOpened.Value.ToString("MMM dd HH:mm") : "-")}[/]" : "";
+            string active = sessionOrchestrator.IsSessionActive(p.Name) ? " [bold green]●[/]" : "";
+            
+            return $"{icon} {p.Name.PadRight(18)}{branchInfo}{status}{stats}{active}";
+        }
+
         private void HandleInput(ConsoleKeyInfo key)
         {
             switch (key.Key)
@@ -175,15 +218,21 @@ namespace NexusShell.Services
 
         private void ExecuteSelection()
         {
+            if (_selectedIndex < 0 || _selectedIndex >= _flatMenu.Count) return;
             string selection = _flatMenu[_selectedIndex];
 
             if (selection.StartsWith("PROJ:"))
             {
                 string projectName = selection.Substring(5);
-                var project = _currentProjects.First(p => p.Name == projectName);
-                historyService.RecordLaunch(project.Name);
-                historyService.AddEvent($"[green]Launched:[/] '{project.Name}' session.");
-                sessionOrchestrator.LaunchGemini(project.Name, project.Path);
+                ProjectInfo? project;
+                lock(_dataLock) { project = _currentProjects.FirstOrDefault(p => p.Name == projectName); }
+                
+                if (project != null)
+                {
+                    historyService.RecordLaunch(project.Name);
+                    historyService.AddEvent($"[green]Launched:[/] '{project.Name}' session.");
+                    sessionOrchestrator.LaunchGemini(project.Name, project.Path);
+                }
             }
             else if (selection.Contains("EXIT SHELL")) { Environment.Exit(0); }
             else if (selection.Contains("META-WORKSPACE")) { LaunchMeta(); }
@@ -197,7 +246,8 @@ namespace NexusShell.Services
 
         private void LaunchMeta()
         {
-            var allDirs = _currentProjects.Select(p => p.Name).ToList();
+            List<string> allDirs;
+            lock(_dataLock) { allDirs = _currentProjects.Select(p => p.Name).ToList(); }
             string includeArgs = "--include-directories " + string.Join(" ", allDirs.Select(d => $".\\{d}"));
             historyService.RecordLaunch("META-WORKSPACE");
             historyService.AddEvent("[green]Launched:[/] 'UNIFIED ECOSYSTEM' session.");
@@ -212,9 +262,8 @@ namespace NexusShell.Services
             sessionOrchestrator.LaunchGemini("NEXUS HUB", hubPath);
         }
 
-        private void ShowHistory()
+        private void ShowHistory(List<HistoryEvent> events)
         {
-            var events = historyService.GetRecentEvents();
             if (events.Count > 0)
             {
                 var historyTable = new Table().Border(TableBorder.None).HideHeaders();
@@ -230,8 +279,9 @@ namespace NexusShell.Services
 
         private void ShowMaintenance()
         {
-            // Simple sub-menu
+            Console.CursorVisible = true;
             var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("MAINTENANCE").AddChoices("Refresh Git", "Clear History", "Back"));
+            Console.CursorVisible = false;
             if (choice == "Back") return;
             if (choice == "Refresh Git") RunScript("sync-tracks.ps1", true);
             if (choice == "Clear History") { historyService.ClearAll(); Thread.Sleep(500); }
@@ -239,27 +289,13 @@ namespace NexusShell.Services
 
         private void ShowHelp()
         {
+            Console.Clear();
+            layoutService.DrawHeroHeader();
             AnsiConsole.MarkupLine("[bold cyan]NEXUS HELP SYSTEM[/] - Press any key to return.");
             AnsiConsole.MarkupLine("• Use Arrow Keys to navigate the dashboard.");
-            AnsiConsole.MarkupLine("• The UI updates every 3 seconds to show active windows (●).");
-            AnsiConsole.MarkupLine("• All launches and closures are logged in RECENT ACTIVITY.");
+            AnsiConsole.MarkupLine("• Navigation is now ASYNCHRONOUS and fluid.");
+            AnsiConsole.MarkupLine("• Project status (Git/Stats) syncs in the background every 5s.");
             Console.ReadKey();
-        }
-
-        private string GetProjectDisplayName(ProjectInfo p)
-        {
-            string icon = p.Type switch { "Mono" => "🐙", "Multi" => "📦", _ => "📁" };
-            string branchInfo = p.Branch != "-" ? $" [grey][[{p.Branch}]][/]" : "";
-            
-            var statusParts = new List<string>();
-            if (p.HasChanges) statusParts.Add("[yellow]![/]");
-            if (!string.IsNullOrEmpty(p.RemoteStatus)) statusParts.Add($"[blue]{p.RemoteStatus}[/]");
-            string status = statusParts.Count > 0 ? $" {string.Join(" ", statusParts)}" : "";
-
-            string stats = p.OpenCount > 0 ? $" [blue]({p.OpenCount}x)[/] [dim grey]last: {(p.LastOpened.HasValue ? p.LastOpened.Value.ToString("MMM dd HH:mm") : "-")}[/]" : "";
-            string active = sessionOrchestrator.IsSessionActive(p.Name) ? " [bold green]●[/]" : "";
-            
-            return $"{icon} {p.Name.PadRight(18)}{branchInfo}{status}{stats}{active}";
         }
 
         private void RunScript(string scriptName, bool wait)

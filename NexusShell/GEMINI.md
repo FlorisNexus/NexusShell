@@ -10,6 +10,14 @@
 - **Critical:** You MUST increment the `APP_VERSION` constant in `Program.cs` at every iteration or after implementing a significant new feature or architectural change.
 - **Alignment:** Always synchronize the version in the PowerShell profile loading message if modified.
 
+## 🚀 Post-Iteration Automation
+- **Mandatory Workflow:** After EVERY significant change or iteration, you MUST:
+  1. **Build:** `dotnet build -c Release`
+  2. **Test:** `dotnet test --no-restore`
+  3. **Validate:** Ensure the UI remains responsive and features work as intended.
+  4. **Commit:** Atomic commit with descriptive message.
+  5. **Push:** `git push origin main`
+
 ## 🏛️ Architecture
 - **LayoutService:** Handles all dashboard drawing (Header, Strategic panel).
 - **ProjectService:** Handles multi-track discovery and Git status.
