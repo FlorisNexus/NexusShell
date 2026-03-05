@@ -8,14 +8,19 @@ namespace NexusShell.Services
     /// <summary>
     /// Implementation of the Marketing Command Center feature.
     /// </summary>
-    public class MarketingService(string reposRoot, ILayoutService layoutService) : IMarketingService
+    public class MarketingService(
+        string reposRoot, 
+        ILayoutService layoutService,
+        ISessionOrchestrator sessionOrchestrator) : IMarketingService
     {
         private readonly string _reposRoot = reposRoot;
+        private readonly ILayoutService _layoutService = layoutService;
+        private readonly ISessionOrchestrator _sessionOrchestrator = sessionOrchestrator;
 
         /// <inheritdoc />
         public void Execute()
         {
-            layoutService.RefreshHeader();
+            _layoutService.RefreshHeader();
             AnsiConsole.Write(new Rule("[yellow]--- 📢 MARKETING COMMAND CENTER ---[/]").RuleStyle("yellow dim"));
 
             var choice = AnsiConsole.Prompt(
@@ -44,7 +49,7 @@ namespace NexusShell.Services
                 var prompt = $"Generate the marketing post for Day {day} for {branchName} using the roadmap in product-guidelines.md and marketing-guidelines.md. Provide the text for the relevant platforms (FB/IG/LI or X/LI).";
 
                 AnsiConsole.MarkupLine($"\n[green]🚀 Launching Gemini for Day {day} ({branchName})...[/]");
-                RunGeminiPrompt(_reposRoot, prompt);
+                _sessionOrchestrator.LaunchGemini("MARKETING", _reposRoot, $"--prompt \"{prompt}\" -i");
             }
             else if (choice.StartsWith("2"))
             {
@@ -68,18 +73,8 @@ namespace NexusShell.Services
             {
                 var topic = AnsiConsole.Ask<string>("[cyan]What do you want to sell or discuss today?[/]");
                 var prompt = $"As a senior marketing strategist, help me sell '{topic}'. Tell me what to say, which tone to use, and which platforms are best for this specific target.";
-                RunGeminiPrompt(_reposRoot, prompt);
+                _sessionOrchestrator.LaunchGemini("MARKETING", _reposRoot, $"--prompt \"{prompt}\" -i");
             }
-        }
-
-        private static void RunGeminiPrompt(string workingDir, string prompt)
-        {
-            var psi = new ProcessStartInfo("cmd.exe", $"/c start \"Marketing Neural Link\" powershell.exe -NoProfile -Command \"gemini --prompt \\\"{prompt}\\\" -i\"")
-            {
-                WorkingDirectory = workingDir,
-                UseShellExecute = true
-            };
-            Process.Start(psi);
         }
     }
 }

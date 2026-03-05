@@ -150,8 +150,16 @@ namespace NexusShell.Services
             DrawGroup("🌍 GLOBAL SAAS TRACK", saasProjects, coreMenu.Count);
             DrawGroup("🏗️ LOCAL HERO TRACK", localProjects, coreMenu.Count + saasProjects.Count);
             DrawGroup("📂 OTHER TRACKS", otherProjects, coreMenu.Count + saasProjects.Count + localProjects.Count);
-            
-            AnsiConsole.MarkupLine("\n[dim grey]Arrows: Navigate | Enter: Launch | Live Markdown Registry Sync active.[/]");
+
+            // Show Active Tools if any are running
+            if (sessionOrchestrator.IsSessionActive("MARKETING") || sessionOrchestrator.IsSessionActive("NEXUS HUB"))
+            {
+                AnsiConsole.MarkupLine("\n  [bold yellow]⚡ ACTIVE TOOLS[/]");
+                if (sessionOrchestrator.IsSessionActive("MARKETING")) AnsiConsole.MarkupLine("      📢 MARKETING ASSISTANT [bold green]●[/]");
+                if (sessionOrchestrator.IsSessionActive("NEXUS HUB")) AnsiConsole.MarkupLine("      🛠️ NEXUS HUB EVOLUTION [bold green]●[/]");
+            }
+
+            AnsiConsole.MarkupLine("\n[dim grey]Arrows: Navigate | Enter: Launch | Background sync is non-blocking.[/]");
         }
 
         private void DrawMenuItem(string label, int index)

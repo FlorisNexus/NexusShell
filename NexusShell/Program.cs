@@ -21,7 +21,7 @@ namespace NexusShell
     /// </summary>
     public class Program
     {
-        private const string APP_VERSION = "v11.5";
+        private const string APP_VERSION = "v11.6";
 
         /// <summary>
         /// Bootstraps the application, configures DI, and starts the UI.
@@ -39,12 +39,9 @@ namespace NexusShell
         /// </summary>
         private static IHostBuilder CreateHostBuilder(string[] args)
         {
-            // Find the conductor root by looking for appsettings.json in current or parent dirs
-            // Default to a hardcoded safe fallback if not found, but we expect it in conductor root.
             string baseDir = AppContext.BaseDirectory;
             string configPath = Path.Combine(baseDir, "appsettings.json");
             
-            // Fallback for development/production split
             if (!File.Exists(configPath)) {
                 configPath = @"C:\Users\flori\source\repos\conductor\appsettings.json";
             }
@@ -75,7 +72,8 @@ namespace NexusShell
                     // Feature Services
                     services.AddSingleton<IMarketingService>(sp => new MarketingService(
                         sp.GetRequiredService<NexusSettings>().ReposRoot,
-                        sp.GetRequiredService<ILayoutService>()));
+                        sp.GetRequiredService<ILayoutService>(),
+                        sp.GetRequiredService<ISessionOrchestrator>()));
                     services.AddSingleton<IJournalService>(sp => new JournalService(
                         sp.GetRequiredService<NexusSettings>().ReposRoot,
                         sp.GetRequiredService<ILayoutService>()));
