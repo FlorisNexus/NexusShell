@@ -21,7 +21,7 @@ namespace NexusShell
     /// </summary>
     public class Program
     {
-        private const string APP_VERSION = "v11.2";
+        private const string APP_VERSION = "v11.3";
 
         /// <summary>
         /// Bootstraps the application, configures DI, and starts the UI.
