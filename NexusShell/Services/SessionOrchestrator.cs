@@ -26,10 +26,14 @@ namespace NexusShell.Services
                     Thread.Sleep(400);
                 });
 
-            // Launch PowerShell directly to get a reliable process handle
+            // Use -NoExit for administrative tools so the user can see errors if they occur
+            string exitFlag = (name == "MARKETING" || name == "NEXUS HUB") ? "-NoExit" : "";
+
+            // Use a simpler command structure to avoid quote nesting issues
+            // Removed -NoProfile to ensure 'gemini' (often from npm/nvm) is in the PATH
             var psi = new ProcessStartInfo("powershell.exe")
             {
-                Arguments = $"-NoProfile -Command \"$Host.UI.RawUI.WindowTitle = '{name} Neural Link'; Write-Host '--- NEXUS SESSION: {name} ---' -ForegroundColor Cyan; cd '{path}'; {cmdArgs}\"",
+                Arguments = $"{exitFlag} -Command \"$Host.UI.RawUI.WindowTitle = '{name} Neural Link'; cd '{path}'; {cmdArgs}\"",
                 UseShellExecute = true,
                 CreateNoWindow = false
             };

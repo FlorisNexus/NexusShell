@@ -49,7 +49,7 @@ namespace NexusShell.Services
                 var prompt = $"Generate the marketing post for Day {day} for {branchName} using the roadmap in product-guidelines.md and marketing-guidelines.md. Provide the text for the relevant platforms (FB/IG/LI or X/LI).";
 
                 AnsiConsole.MarkupLine($"\n[green]🚀 Launching Gemini for Day {day} ({branchName})...[/]");
-                _sessionOrchestrator.LaunchGemini("MARKETING", _reposRoot, $"--prompt \"{prompt}\" -i");
+                _sessionOrchestrator.LaunchGemini("MARKETING", _reposRoot, $"--prompt {EscapePrompt(prompt)} -i");
             }
             else if (choice.StartsWith("2"))
             {
@@ -73,8 +73,14 @@ namespace NexusShell.Services
             {
                 var topic = AnsiConsole.Ask<string>("[cyan]What do you want to sell or discuss today?[/]");
                 var prompt = $"As a senior marketing strategist, help me sell '{topic}'. Tell me what to say, which tone to use, and which platforms are best for this specific target.";
-                _sessionOrchestrator.LaunchGemini("MARKETING", _reposRoot, $"--prompt \"{prompt}\" -i");
+                _sessionOrchestrator.LaunchGemini("MARKETING", _reposRoot, $"--prompt {EscapePrompt(prompt)} -i");
             }
+        }
+
+        private string EscapePrompt(string prompt)
+        {
+            // Escape double quotes for PowerShell command string
+            return $"\\\"{prompt.Replace("\"", "\\\"")}\\\"";
         }
     }
 }
