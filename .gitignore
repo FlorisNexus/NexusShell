@@ -1,0 +1,16 @@
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+*.sln.doccache
+
+# Nexus Data
+nexus_stats.json
+nexus_history.json
+
+# User Config
+appsettings.json
+
+# VS
+.vs/
