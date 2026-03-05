@@ -25,7 +25,7 @@ jobs:
       run: dotnet build -c Release --no-restore
 
     - name: Test with Coverage
-      run: dotnet test --no-build --verbosity normal /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+      run: dotnet test -c Release --no-build --verbosity normal /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
     - name: Publish Win-x64 Executable
       run: dotnet publish NexusShell/NexusShell.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o ./publish

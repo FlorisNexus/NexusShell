@@ -1,4 +1,4 @@
-# 🏗️ Nexus Command Center (v11.3)
+# 🏗️ Nexus Command Center
 
 > **The Neural Hub of the FlorisNexus Ecosystem.**
 
