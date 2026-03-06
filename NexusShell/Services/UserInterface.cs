@@ -247,7 +247,8 @@ namespace NexusShell.Services
         {
             if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
-            // Overhead increased to 32 to completely remove scrollbar risks on all standard windows.
+            // Overhead: Header(6) + Tabs(5) + Brief(4) + Rule(1) + TurnStats(1) + HistBorders(2) + Input(4) + Footer(2) = 25
+            // Extra margin: +7 to be completely safe against scrollbar popping when texts wrap wildly
             int availableLines = Math.Max(5, Console.WindowHeight - 32);
             List<string> history; List<string> sessions;
             lock (session.Lock) { history = new List<string>(session.History); sessions = new List<string>(session.ResumableSessions); }
@@ -280,6 +281,7 @@ namespace NexusShell.Services
                 string[] frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
                 string frame = frames[(DateTime.Now.Millisecond / 100) % frames.Length];
                 inputGrid.AddRow($"\n  [bold yellow]{frame} CLI INITIALIZING...[/] [grey]Updating context...[/]");
+                inputGrid.AddRow(""); // Pad to match input height
             } else {
                 string promptPrefix = "  [bold cyan]>[/]";
                 if (session.WizardStep > 0)
