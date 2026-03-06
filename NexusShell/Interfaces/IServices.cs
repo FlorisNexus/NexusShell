@@ -79,6 +79,22 @@ namespace NexusShell.Interfaces
     }
 
     /// <summary>
+    /// Service for synchronizing Conductor metadata to the cloud.
+    /// </summary>
+    public interface ICloudSyncService
+    {
+        /// <summary>
+        /// Synchronizes the local conductor folder to the cloud storage.
+        /// </summary>
+        void SyncToCloud();
+
+        /// <summary>
+        /// Synchronizes the cloud storage back to the local conductor folder.
+        /// </summary>
+        void SyncFromCloud();
+    }
+
+    /// <summary>
     /// Service for orchestrating external Gemini sessions.
     /// </summary>
     public interface ISessionOrchestrator

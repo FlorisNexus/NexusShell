@@ -14,14 +14,16 @@ namespace NexusShell
     /// <param name="ReposRoot">The root directory where projects are located.</param>
     /// <param name="ConductorRoot">The directory containing the conductor tools and NexusShell.</param>
     /// <param name="Version">The current application version.</param>
-    public record NexusSettings(string ReposRoot, string ConductorRoot, string Version);
+    /// <param name="Role">The team role (Admin, Developer-Branch1, Developer-Branch2).</param>
+    /// <param name="CloudSyncPath">The mock or real path for cloud memory synchronization.</param>
+    public record NexusSettings(string ReposRoot, string ConductorRoot, string Version, string Role, string CloudSyncPath);
 
     /// <summary>
     /// Entry point for the Nexus Command Center AI-OS.
     /// </summary>
     public class Program
     {
-        private const string APP_VERSION = "v16.2";
+        private const string APP_VERSION = "v18.0";
 
         /// <summary>
         /// Bootstraps the application, configures DI, and starts the UI.
@@ -52,12 +54,14 @@ namespace NexusShell
 
             string reposRoot = config["ReposRoot"] ?? @"C:\Users\flori\source\repos";
             string conductorRoot = config["ConductorRoot"] ?? @"C:\Users\flori\source\repos\conductor";
+            string role = config["Role"] ?? "Admin";
+            string cloudSyncPath = config["CloudSyncPath"] ?? Path.Combine(reposRoot, "CloudStorage_Mock");
 
             return Host.CreateDefaultBuilder(args)
                 .ConfigureServices((_, services) =>
                 {
                     // Configuration
-                    var settings = new NexusSettings(reposRoot, conductorRoot, APP_VERSION);
+                    var settings = new NexusSettings(reposRoot, conductorRoot, APP_VERSION, role, cloudSyncPath);
                     services.AddSingleton(settings);
 
                     // Core Services
@@ -65,6 +69,7 @@ namespace NexusShell
                     services.AddSingleton<IContextService, ContextService>();
                     services.AddSingleton<IRegistryService, RegistryService>();
                     services.AddSingleton<ICliExecutionService, CliExecutionService>();
+                    services.AddSingleton<ICloudSyncService, CloudSyncService>();
                     services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>();
                     services.AddSingleton<IHistoryService>(sp => new HistoryService(sp.GetRequiredService<NexusSettings>().ConductorRoot));
                     services.AddSingleton<IProjectService>(sp => new ProjectService(
@@ -82,7 +87,8 @@ namespace NexusShell
                         sp.GetRequiredService<ILayoutService>(),
                         sp.GetRequiredService<ISessionOrchestrator>(),
                         sp.GetRequiredService<IChatPersistenceService>(),
-                        sp.GetRequiredService<ICliExecutionService>()));
+                        sp.GetRequiredService<ICliExecutionService>(),
+                        sp.GetRequiredService<ICloudSyncService>()));
                 });
         }
     }

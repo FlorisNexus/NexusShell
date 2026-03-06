@@ -21,9 +21,11 @@ namespace NexusShell.Services
         ILayoutService layoutService,
         ISessionOrchestrator sessionOrchestrator,
         IChatPersistenceService chatPersistence,
-        ICliExecutionService cliExecutionService) : IUserInterface
+        ICliExecutionService cliExecutionService,
+        ICloudSyncService cloudSyncService) : IUserInterface
     {
         private readonly ISessionOrchestrator _sessionOrchestrator = sessionOrchestrator;
+        private readonly ICloudSyncService _cloudSyncService = cloudSyncService;
         private readonly NexusSettings _settings = settings;
         private int _selectedIndex = 0;
         private List<string> _flatMenu = new();
@@ -178,6 +180,16 @@ namespace NexusShell.Services
 
         private IRenderable GetFleetViewPanel(List<ProjectInfo> projects)
         {
+            // Apply Role-Based Filtering
+            if (_settings.Role.Contains("Branch1", StringComparison.OrdinalIgnoreCase))
+            {
+                projects = projects.Where(p => p.Track == "LOCAL" || p.Track == "OTHER").ToList();
+            }
+            else if (_settings.Role.Contains("Branch2", StringComparison.OrdinalIgnoreCase))
+            {
+                projects = projects.Where(p => p.Track == "SAAS" || p.Track == "OTHER").ToList();
+            }
+            
             var saas = projects.Where(p => p.Track == "SAAS").ToList();
             var local = projects.Where(p => p.Track == "LOCAL").ToList();
             var other = projects.Where(p => p.Track == "OTHER").ToList();
@@ -359,6 +371,8 @@ namespace NexusShell.Services
                     case ConsoleKey.F: TriggerFocusModeForSelectedProject(); break;
                     case ConsoleKey.S: TriggerFleetSync(); break;
                     case ConsoleKey.M: TriggerMorningStandup(); break;
+                    case ConsoleKey.U: TriggerCloudSyncUp(); break;
+                    case ConsoleKey.L: TriggerCloudSyncDown(); break;
                 }
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
@@ -465,6 +479,43 @@ namespace NexusShell.Services
                     _needsRedraw = true;
                 }
             }
+        }
+
+        private void TriggerCloudSyncUp()
+        {
+            _isModal = true;
+            Console.Clear();
+            AnsiConsole.Write(layoutService.GetHeroHeader());
+            AnsiConsole.MarkupLine("[bold yellow]Synchronizing Conductor memory TO Cloud...[/]");
+            try {
+                _cloudSyncService.SyncToCloud();
+                AnsiConsole.MarkupLine("[bold green]✅ Upload complete.[/]");
+            } catch (Exception ex) {
+                AnsiConsole.MarkupLine($"[bold red]❌ Failed:[/] {Markup.Escape(ex.Message)}");
+            }
+            Thread.Sleep(1500);
+            _isModal = false;
+            _forceClear = true;
+            _needsRedraw = true;
+        }
+
+        private void TriggerCloudSyncDown()
+        {
+            _isModal = true;
+            Console.Clear();
+            AnsiConsole.Write(layoutService.GetHeroHeader());
+            AnsiConsole.MarkupLine("[bold yellow]Synchronizing Conductor memory FROM Cloud...[/]");
+            try {
+                _cloudSyncService.SyncFromCloud();
+                AnsiConsole.MarkupLine("[bold green]✅ Download complete.[/]");
+                registryService.UpdateRegistry(projectService.GetProjects()); // refresh memory
+            } catch (Exception ex) {
+                AnsiConsole.MarkupLine($"[bold red]❌ Failed:[/] {Markup.Escape(ex.Message)}");
+            }
+            Thread.Sleep(1500);
+            _isModal = false;
+            _forceClear = true;
+            _needsRedraw = true;
         }
 
         private void TriggerMorningStandup()
@@ -645,7 +696,18 @@ namespace NexusShell.Services
                     s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] [white]Step 3: Provide a one-sentence description of the project.[/]"); 
                 }
                 else if (s.WizardStep == 3) { 
-                    s.WizardData["Description"] = i; s.WizardStep = 0; FinalizeScaffolder(s); 
+                    s.WizardData["Description"] = i; 
+                    if (s.WizardData["Branch"].Contains("2")) {
+                        s.WizardStep = 4;
+                        s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] [white]Step 4: Do you want to automatically deploy this to Azure (Staging) via Bicep? (Y/N)[/]"); 
+                    } else {
+                        s.WizardData["Deploy"] = "N";
+                        s.WizardStep = 0; FinalizeScaffolder(s); 
+                    }
+                }
+                else if (s.WizardStep == 4) {
+                    s.WizardData["Deploy"] = i.Equals("Y", StringComparison.OrdinalIgnoreCase) ? "Y" : "N";
+                    s.WizardStep = 0; FinalizeScaffolder(s); 
                 }
             }
         }
@@ -669,8 +731,11 @@ namespace NexusShell.Services
             string projectName = s.WizardData["Name"];
             string branch = s.WizardData["Branch"]; // "1" for LOCAL, "2" for SAAS
             string description = s.WizardData["Description"];
+            bool doDeploy = s.WizardData.TryGetValue("Deploy", out var dep) && dep == "Y";
             
             s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Scaffolding '{Markup.Escape(projectName)}'...");
+            if (doDeploy) s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Bicep Cloud Deployment enabled.");
+            
             _needsRedraw = true;
 
             Task.Run(() => {
@@ -693,6 +758,7 @@ namespace NexusShell.Services
                     p?.WaitForExit();
 
                     string geminiMd = $"# {projectName}\n\n## Description\n{description}\n\n## Branch\n{(branch.Contains("1") ? "LOCAL HERO (React/Vite)" : "GLOBAL SAAS (.NET 10)")}\n";
+                    if (doDeploy) geminiMd += "\n## Infrastructure\nAuto-deployed to Azure via Bicep templates.\n";
                     File.WriteAllText(Path.Combine(projectDir, "GEMINI.md"), geminiMd);
 
                     lock (s.Lock) {
