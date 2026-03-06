@@ -47,54 +47,55 @@ namespace NexusShell.Services
 
             Task.Run(BackgroundDataLoop);
 
-            // Use Spectre's Live display to prevent ALL flickering, scrolling, and ghosting.
-            AnsiConsole.Live(new Markup("Initializing Neural Kernel..."))
-                .Cropping(VerticalOverflowCropping.Bottom)
-                .Start(ctx =>
+            Console.Clear();
+
+            while (true)
+            {
+                try
                 {
-                    while (true)
+                    if (_isModal) { Thread.Sleep(50); continue; }
+
+                    // Animation Redraw (10fps for processing tabs)
+                    if (!_needsRedraw && _activeWorkspaceIndex > 0)
                     {
-                        try
+                        var workspaceName = _activeWorkspaces[_activeWorkspaceIndex];
+                        if (_neuralSessions.TryGetValue(workspaceName, out var s) && s.IsProcessing)
                         {
-                            if (_isModal) { Thread.Sleep(50); continue; }
-
-                            // Animation Redraw (10fps for processing tabs)
-                            if (!_needsRedraw && _activeWorkspaceIndex > 0)
-                            {
-                                var workspaceName = _activeWorkspaces[_activeWorkspaceIndex];
-                                if (_neuralSessions.TryGetValue(workspaceName, out var s) && s.IsProcessing)
-                                {
-                                    _needsRedraw = true;
-                                    Thread.Sleep(100); 
-                                }
-                            }
-
-                            if (_needsRedraw)
-                            {
-                                ctx.UpdateTarget(BuildDashboard());
-                                ctx.Refresh();
-                                _needsRedraw = false;
-                            }
-
-                            if (Console.KeyAvailable)
-                            {
-                                var key = Console.ReadKey(true);
-                                HandleInput(key);
-                            }
-                            else { Thread.Sleep(10); }
-                        }
-                        catch (Exception ex)
-                        {
-                            _isModal = true;
-                            Console.Clear();
-                            AnsiConsole.WriteException(ex);
-                            Console.WriteLine("\nSystem Error. Rebooting UI in 3s...");
-                            Thread.Sleep(3000);
-                            _isModal = false;
                             _needsRedraw = true;
+                            Thread.Sleep(100); 
                         }
                     }
-                });
+
+                    if (_needsRedraw)
+                    {
+                        if (_forceClear) { Console.Clear(); _forceClear = false; }
+                        
+                        var dashboard = BuildDashboard();
+                        Console.SetCursorPosition(0, 0);
+                        AnsiConsole.Write(dashboard);
+                        
+                        _needsRedraw = false;
+                    }
+
+                    if (Console.KeyAvailable)
+                    {
+                        var key = Console.ReadKey(true);
+                        HandleInput(key);
+                    }
+                    else { Thread.Sleep(10); }
+                }
+                catch (Exception ex)
+                {
+                    _isModal = true;
+                    Console.Clear();
+                    AnsiConsole.WriteException(ex);
+                    Console.WriteLine("\nSystem Error. Rebooting UI in 3s...");
+                    Thread.Sleep(3000);
+                    _isModal = false;
+                    _forceClear = true;
+                    _needsRedraw = true;
+                }
+            }
         }
 
         private async Task BackgroundDataLoop()
@@ -165,8 +166,11 @@ namespace NexusShell.Services
             }
 
             // 5. Global Footer (Static)
+            // To ensure the footer is locked at the very bottom and overwrites properly, 
+            // we will let Spectre.Console handle the expansion. The MasterTable is set to Expand().
             masterTable.AddRow(new Rule().RuleStyle("cyan dim"));
             masterTable.AddRow(new Markup($" [dim grey]Arrows: Navigate | Enter: Launch | Tab: Switch | F1-F12: Fast Jump | [bold cyan]{_settings.Version} CLI-Powered Neural OS[/][/]"));
+            masterTable.AddRow(new Markup("")); // Safe margin for newline
 
             return masterTable;
         }
@@ -181,11 +185,11 @@ namespace NexusShell.Services
                 "⚡ META-WORKSPACE (UNIFIED)", 
                 "📢 MARKETING ASSISTANT", 
                 "📔 FOUNDER JOURNAL", 
-                "🏗️  NEW PROJECT", 
-                "🛠️  EVOLVE NEXUS HUB", 
+                "🏗️ NEW PROJECT", 
+                "🛠️ EVOLVE NEXUS HUB", 
                 "📖 HELP & DOCUMENTATION", 
-                "⚙️  SYSTEM MAINTENANCE", 
-                "🔌  EXIT SHELL" 
+                "⚙️ SYSTEM MAINTENANCE", 
+                "🔌 EXIT SHELL" 
             };
 
             var menuGrid = new Grid().AddColumn();
@@ -206,7 +210,7 @@ namespace NexusShell.Services
             var briefing = selected != null ? layoutService.GetProjectBriefing(selected) : GetDefaultBriefingPanel();
 
             var layout = new Table().Border(TableBorder.None).HideHeaders().Expand();
-            layout.AddColumn(new TableColumn("").Width(42));
+            layout.AddColumn(new TableColumn("").Width(60).NoWrap());
             layout.AddColumn(new TableColumn(""));
             layout.AddRow(new Panel(menuGrid).Header("[bold cyan] FLEET VIEW [/]").BorderColor(Color.Cyan1).Expand(), briefing);
             return layout;
@@ -216,7 +220,8 @@ namespace NexusShell.Services
         {
             if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
-            int availableLines = Math.Max(5, Console.WindowHeight - 28);
+            // Overhead increased to 30 to leave a safe margin at the bottom and prevent terminal scrolling.
+            int availableLines = Math.Max(5, Console.WindowHeight - 30);
             List<string> history; List<string> sessions;
             lock (session.Lock) { history = new List<string>(session.History); sessions = new List<string>(session.ResumableSessions); }
 
