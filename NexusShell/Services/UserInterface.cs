@@ -320,7 +320,7 @@ namespace NexusShell.Services
             }
             else if (selection.Contains("MARKETING")) StartMarketingWizard();
             else if (selection.Contains("JOURNAL")) StartJournalWizard();
-            else if (selection.Contains("NEW PROJECT")) InitializeWorkspace("SCAFFOLDER", _settings.ConductorRoot, triggerPrompt: "Explain templates.", systemPromptOverride: "Architect AI.");
+            else if (selection.Contains("NEW PROJECT")) StartScaffolderWizard();
             else if (selection.Contains("EVOLVE")) InitializeWorkspace("NEXUS HUB", Path.Combine(_settings.ConductorRoot, "NexusShell"), triggerPrompt: "Hub status.");
             else if (selection.Contains("HELP")) ShowHelp();
             else if (selection.Contains("MAINTENANCE")) ShowMaintenance();
@@ -340,6 +340,14 @@ namespace NexusShell.Services
             _needsRedraw = true;
         }
 
+        private void StartScaffolderWizard() {
+            InitializeWorkspace("SCAFFOLDER", _settings.ConductorRoot);
+            var s = _neuralSessions["SCAFFOLDER"]; s.WizardStep = 1;
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Project Architect initialized.");
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] [white]Step 1: What is the name of the new project?[/]");
+            _needsRedraw = true;
+        }
+
         private void ProcessWizardStep(NeuralSession s, string i) {
             string ts = DateTime.Now.ToString("HH:mm"); s.History.Add($"[dim grey]{ts}[/] [bold cyan]YOU:[/] {Markup.Escape(i)}");
             if (s.ProjectName == "JOURNAL") {
@@ -349,6 +357,18 @@ namespace NexusShell.Services
             } else if (s.ProjectName == "MARKETING") {
                 if (s.WizardStep == 1) { s.WizardData["T"] = i; s.WizardStep = 2; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Step 2: Hook/Achievement?"); }
                 else if (s.WizardStep == 2) { s.WizardData["H"] = i; s.WizardStep = 0; FinalizeMarketing(s); }
+            } else if (s.ProjectName == "SCAFFOLDER") {
+                if (s.WizardStep == 1) { 
+                    s.WizardData["Name"] = i; s.WizardStep = 2; 
+                    s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] [white]Step 2: Which branch? (1) LOCAL HERO (React/Vite) or (2) GLOBAL SAAS (.NET 10)[/]"); 
+                }
+                else if (s.WizardStep == 2) { 
+                    s.WizardData["Branch"] = i; s.WizardStep = 3; 
+                    s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] [white]Step 3: Provide a one-sentence description of the project.[/]"); 
+                }
+                else if (s.WizardStep == 3) { 
+                    s.WizardData["Description"] = i; s.WizardStep = 0; FinalizeScaffolder(s); 
+                }
             }
         }
 
@@ -365,6 +385,52 @@ namespace NexusShell.Services
             File.AppendAllText(Path.Combine(_settings.ConductorRoot, "marketing_drafts.md"), $"\n- {DateTime.Now}: {s.WizardData["T"]} Hook: {s.WizardData["H"]}");
             s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Draft logged. Generating social content...");
             SubmitTriggerPrompt(s, $"Generate 3 social posts for {s.WizardData["T"]} with hook {s.WizardData["H"]} using nexus-social-marketing skill.");
+        }
+
+        private void FinalizeScaffolder(NeuralSession s) {
+            string projectName = s.WizardData["Name"];
+            string branch = s.WizardData["Branch"]; // "1" for LOCAL, "2" for SAAS
+            string description = s.WizardData["Description"];
+            
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Scaffolding '{Markup.Escape(projectName)}'...");
+            _needsRedraw = true;
+
+            Task.Run(() => {
+                try {
+                    string projectDir = Path.Combine(_settings.ReposRoot, projectName);
+                    Directory.CreateDirectory(projectDir);
+
+                    string cmd = "";
+                    if (branch.Contains("1")) { // LOCAL
+                        cmd = $"cd '{_settings.ReposRoot}'; npm create vite@latest {projectName} -- --template react-ts";
+                    } else { // SAAS
+                        cmd = $"cd '{_settings.ReposRoot}'; dotnet new webapi -n {projectName}";
+                    }
+
+                    var psi = new ProcessStartInfo("powershell.exe") {
+                        Arguments = $"-NoProfile -Command \"{cmd}; cd '{projectDir}'; git init\"",
+                        CreateNoWindow = true, UseShellExecute = false
+                    };
+                    using var p = Process.Start(psi);
+                    p?.WaitForExit();
+
+                    string geminiMd = $"# {projectName}\n\n## Description\n{description}\n\n## Branch\n{(branch.Contains("1") ? "LOCAL HERO (React/Vite)" : "GLOBAL SAAS (.NET 10)")}\n";
+                    File.WriteAllText(Path.Combine(projectDir, "GEMINI.md"), geminiMd);
+
+                    lock (s.Lock) {
+                        s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Project scaffolded successfully. Triggering AI Architect...");
+                    }
+                    
+                    s.ProjectName = projectName;
+                    s.ProjectPath = projectDir;
+                    s.SystemPrompt = "You are an Architect AI. Review the newly scaffolded project and suggest the next 3 development steps based on its GEMINI.md.";
+                    
+                    SubmitTriggerPrompt(s, "Project has just been scaffolded. Read GEMINI.md and provide an initial architectural summary and next steps.");
+                } catch (Exception ex) {
+                    lock(s.Lock) { s.History.Add($"[red]Error scaffolding:[/] {Markup.Escape(ex.Message)}"); }
+                    _needsRedraw = true;
+                }
+            });
         }
 
         private void ShowMaintenance() {
