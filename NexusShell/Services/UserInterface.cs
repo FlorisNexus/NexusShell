@@ -201,7 +201,7 @@ namespace NexusShell.Services
                 "🏗️ NEW PROJECT", 
                 "🛠️ EVOLVE NEXUS HUB", 
                 "📖 HELP & DOCUMENTATION", 
-                "⚙️ SYSTEM MAINTENANCE", 
+                "🔧 SYSTEM MAINTENANCE", 
                 "🔌 EXIT SHELL" 
             };
 
