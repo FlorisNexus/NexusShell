@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Spectre.Console.Rendering;
 using NexusShell.Models;
 
 namespace NexusShell.Interfaces
@@ -33,6 +34,22 @@ namespace NexusShell.Interfaces
         /// Clears all project statistics and activity history.
         /// </summary>
         void ClearAll();
+    }
+
+    /// <summary>
+    /// Service for managing persistent project intelligence and context (Resumes/Plans).
+    /// </summary>
+    public interface IContextService
+    {
+        /// <summary>
+        /// Loads the context for a specific project from its .gemini folder.
+        /// </summary>
+        ProjectContext LoadContext(string projectPath);
+
+        /// <summary>
+        /// Saves the context for a specific project.
+        /// </summary>
+        void SaveContext(string projectPath, ProjectContext context);
     }
 
     /// <summary>
@@ -78,14 +95,24 @@ namespace NexusShell.Interfaces
         void RefreshHeader();
 
         /// <summary>
-        /// Draws only the Hero Header (ASCII art and version).
+        /// Returns the top-level workspace tab bar for multi-tasking navigation.
         /// </summary>
-        void DrawHeroHeader();
+        IRenderable GetTabBar(List<string> tabs, int activeIndex);
 
         /// <summary>
-        /// Draws only the Strategic Intelligence panel.
+        /// Returns the Hero Header (ASCII art and version).
         /// </summary>
-        void DrawStrategicFocus();
+        IRenderable GetHeroHeader();
+
+        /// <summary>
+        /// Returns the Strategic Intelligence panel.
+        /// </summary>
+        IRenderable GetStrategicFocus();
+
+        /// <summary>
+        /// Returns the deep intelligence briefing for a specific project.
+        /// </summary>
+        IRenderable GetProjectBriefing(ProjectInfo project);
     }
 
     /// <summary>
@@ -100,39 +127,6 @@ namespace NexusShell.Interfaces
     }
 
     /// <summary>
-    /// Service for the Marketing Command Center feature.
-    /// </summary>
-    public interface IMarketingService
-    {
-        /// <summary>
-        /// Executes the marketing assistant interactive flow.
-        /// </summary>
-        void Execute();
-    }
-
-    /// <summary>
-    /// Service for the Founder's Daily Journal feature.
-    /// </summary>
-    public interface IJournalService
-    {
-        /// <summary>
-        /// Executes the journal entry interactive flow.
-        /// </summary>
-        void Execute();
-    }
-
-    /// <summary>
-    /// Service for the Enterprise Scaffolding feature.
-    /// </summary>
-    public interface INewProjectService
-    {
-        /// <summary>
-        /// Executes the project scaffolding interactive flow.
-        /// </summary>
-        void Execute();
-    }
-
-    /// <summary>
     /// Service for maintaining the markdown tracks registry.
     /// </summary>
     public interface IRegistryService
@@ -141,5 +135,22 @@ namespace NexusShell.Interfaces
         /// Updates the conductor/tracks.md file with the latest project status.
         /// </summary>
         void UpdateRegistry(List<ProjectInfo> projects);
+    }
+
+    /// <summary>
+    /// Service for persisting per-project Gemini conversation history.
+    /// </summary>
+    public interface IChatPersistenceService
+    {
+        /// <summary>
+        /// Loads conversation turns from .gemini/chat_history.json in the given project path.
+        /// Returns an empty list if the file does not exist.
+        /// </summary>
+        List<ConversationTurn> LoadHistory(string projectPath);
+
+        /// <summary>
+        /// Saves conversation turns (last 50) to .gemini/chat_history.json.
+        /// </summary>
+        void SaveHistory(string projectPath, List<ConversationTurn> turns);
     }
 }

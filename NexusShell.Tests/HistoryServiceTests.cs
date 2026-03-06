@@ -72,5 +72,17 @@ namespace NexusShell.Tests
             stats.Should().ContainKey(projectName);
             stats[projectName].OpenCount.Should().Be(1);
         }
+
+        [Fact]
+        public void ConversationTurn_ShouldRoundTripJson()
+        {
+            var turn = new ConversationTurn { Role = "user", Content = "hello", Timestamp = new DateTime(2026, 3, 5, 10, 0, 0) };
+            var json = System.Text.Json.JsonSerializer.Serialize(turn);
+            var result = System.Text.Json.JsonSerializer.Deserialize<ConversationTurn>(json);
+            result.Should().NotBeNull();
+            result!.Role.Should().Be("user");
+            result.Content.Should().Be("hello");
+            result.Timestamp.Should().Be(new DateTime(2026, 3, 5, 10, 0, 0));
+        }
     }
 }

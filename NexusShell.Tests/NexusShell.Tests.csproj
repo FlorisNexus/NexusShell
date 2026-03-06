@@ -30,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NexusShell\NexusShell.csproj" />
+    <ProjectReference Include="..\NexusShell.csproj" />
   </ItemGroup>
 
 </Project>

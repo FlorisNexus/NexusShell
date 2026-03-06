@@ -11,10 +11,11 @@ namespace NexusShell.Services
     /// <summary>
     /// Implementation of the repository project scanner.
     /// </summary>
-    public class ProjectService(string reposRoot, IHistoryService historyService) : IProjectService
+    public class ProjectService(string reposRoot, IHistoryService historyService, IContextService contextService) : IProjectService
     {
         private readonly string _reposRoot = reposRoot;
         private readonly IHistoryService _historyService = historyService;
+        private readonly IContextService _contextService = contextService;
 
         /// <inheritdoc />
         public List<ProjectInfo> GetProjects()
@@ -29,7 +30,11 @@ namespace NexusShell.Services
 
             foreach (var d in dirs)
             {
-                var info = new ProjectInfo { Name = d.Name, Path = d.FullName };
+                var info = new ProjectInfo { 
+                    Name = d.Name, 
+                    Path = d.FullName,
+                    Context = _contextService.LoadContext(d.FullName)
+                };
                 
                 if (stats.TryGetValue(d.Name, out var s))
                 {

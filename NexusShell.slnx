@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="NexusShell.Tests/NexusShell.Tests.csproj" />
-  <Project Path="NexusShell/NexusShell.csproj" />
+  <Project Path="NexusShell.Tests\NexusShell.Tests.csproj" />
+  <Project Path="NexusShell\NexusShell.csproj" />
 </Solution>

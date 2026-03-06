@@ -21,7 +21,7 @@ namespace NexusShell
     /// </summary>
     public class Program
     {
-        private const string APP_VERSION = "v12.2";
+        private const string APP_VERSION = "v16.2";
 
         /// <summary>
         /// Bootstraps the application, configures DI, and starts the UI.
@@ -43,7 +43,7 @@ namespace NexusShell
             string configPath = Path.Combine(baseDir, "appsettings.json");
             
             if (!File.Exists(configPath)) {
-                configPath = @"C:\Users\flori\source\repos\conductor\appsettings.json";
+                configPath = @"C:\Users\flori\source\repos\NexusShell\NexusShell\appsettings.json";
             }
 
             var config = new ConfigurationBuilder()
@@ -51,7 +51,7 @@ namespace NexusShell
                 .Build();
 
             string reposRoot = config["ReposRoot"] ?? @"C:\Users\flori\source\repos";
-            string conductorRoot = config["ConductorRoot"] ?? @"C:\Users\flori\source\repos\conductor";
+            string conductorRoot = config["ConductorRoot"] ?? @"C:\Users\flori\source\repos\NexusShell";
 
             return Host.CreateDefaultBuilder(args)
                 .ConfigureServices((_, services) =>
@@ -62,24 +62,15 @@ namespace NexusShell
 
                     // Core Services
                     services.AddSingleton<ILayoutService, LayoutService>();
+                    services.AddSingleton<IContextService, ContextService>();
                     services.AddSingleton<IRegistryService, RegistryService>();
+                    services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>();
                     services.AddSingleton<IHistoryService>(sp => new HistoryService(sp.GetRequiredService<NexusSettings>().ConductorRoot));
                     services.AddSingleton<IProjectService>(sp => new ProjectService(
                         sp.GetRequiredService<NexusSettings>().ReposRoot, 
-                        sp.GetRequiredService<IHistoryService>()));
-                    services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>(sp => new SessionOrchestrator(sp.GetRequiredService<IHistoryService>()));
-                    
-                    // Feature Services
-                    services.AddSingleton<IMarketingService>(sp => new MarketingService(
-                        sp.GetRequiredService<NexusSettings>().ReposRoot,
-                        sp.GetRequiredService<ILayoutService>(),
-                        sp.GetRequiredService<ISessionOrchestrator>()));
-                    services.AddSingleton<IJournalService>(sp => new JournalService(
-                        sp.GetRequiredService<NexusSettings>().ReposRoot,
-                        sp.GetRequiredService<ILayoutService>()));
-                    services.AddSingleton<INewProjectService>(sp => new NewProjectService(
-                        sp.GetRequiredService<NexusSettings>(),
-                        sp.GetRequiredService<ILayoutService>()));
+                        sp.GetRequiredService<IHistoryService>(),
+                        sp.GetRequiredService<IContextService>()));
+                    services.AddSingleton<IChatPersistenceService, ChatPersistenceService>();
 
                     // UI
                     services.AddSingleton<IUserInterface, UserInterface>(sp => new UserInterface(
@@ -87,12 +78,11 @@ namespace NexusShell
                         sp.GetRequiredService<NexusSettings>().ConductorRoot,
                         sp.GetRequiredService<IProjectService>(),
                         sp.GetRequiredService<IHistoryService>(),
-                        sp.GetRequiredService<ISessionOrchestrator>(),
-                        sp.GetRequiredService<IMarketingService>(),
-                        sp.GetRequiredService<IJournalService>(),
-                        sp.GetRequiredService<INewProjectService>(),
                         sp.GetRequiredService<IRegistryService>(),
-                        sp.GetRequiredService<ILayoutService>()));
+                        sp.GetRequiredService<ILayoutService>(),
+                        sp.GetRequiredService<ISessionOrchestrator>(),
+                        sp.GetRequiredService<IChatPersistenceService>(),
+                        sp.GetRequiredService<IContextService>()));
                 });
         }
     }

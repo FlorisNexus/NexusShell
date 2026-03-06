@@ -14,6 +14,7 @@ namespace NexusShell.Tests
     {
         private readonly string _tempRepos;
         private readonly Mock<IHistoryService> _historyMock;
+        private readonly Mock<IContextService> _contextMock;
 
         public ProjectServiceTests()
         {
@@ -21,6 +22,8 @@ namespace NexusShell.Tests
             Directory.CreateDirectory(_tempRepos);
             _historyMock = new Mock<IHistoryService>();
             _historyMock.Setup(h => h.LoadStats()).Returns(new Dictionary<string, ProjectStats>());
+            _contextMock = new Mock<IContextService>();
+            _contextMock.Setup(c => c.LoadContext(It.IsAny<string>())).Returns(new ProjectContext());
         }
 
         public void Dispose()
@@ -38,7 +41,7 @@ namespace NexusShell.Tests
             Directory.CreateDirectory(Path.Combine(_tempRepos, ".git"));
             Directory.CreateDirectory(Path.Combine(_tempRepos, "ProjectA"));
             Directory.CreateDirectory(Path.Combine(_tempRepos, "conductor"));
-            var service = new ProjectService(_tempRepos, _historyMock.Object);
+            var service = new ProjectService(_tempRepos, _historyMock.Object, _contextMock.Object);
 
             // Act
             var projects = service.GetProjects();
@@ -55,7 +58,7 @@ namespace NexusShell.Tests
             var projectDir = Path.Combine(_tempRepos, "ProjectA");
             Directory.CreateDirectory(projectDir);
             Directory.CreateDirectory(Path.Combine(projectDir, ".git"));
-            var service = new ProjectService(_tempRepos, _historyMock.Object);
+            var service = new ProjectService(_tempRepos, _historyMock.Object, _contextMock.Object);
 
             // Act
             var projects = service.GetProjects();
@@ -76,8 +79,8 @@ namespace NexusShell.Tests
                 { projectName, new ProjectStats { OpenCount = 42, LastOpened = DateTime.Now } }
             };
             _historyMock.Setup(h => h.LoadStats()).Returns(stats);
-            
-            var service = new ProjectService(_tempRepos, _historyMock.Object);
+
+            var service = new ProjectService(_tempRepos, _historyMock.Object, _contextMock.Object);
 
             // Act
             var projects = service.GetProjects();

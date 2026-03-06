@@ -22,19 +22,17 @@ namespace NexusShell.Services
             string cmdArgs = string.IsNullOrEmpty(args) ? "gemini" : $"gemini {args}";
             
             AnsiConsole.Status().Spinner(Spinner.Known.Dots)
-                .Start($"[yellow]Spawning Neural Link for {name}...[/]", _ => {
+                .Start($"[yellow]Initializing Neural Link for {name}...[/]", _ => {
                     Thread.Sleep(400);
                 });
 
-            // Use -NoExit for administrative tools so the user can see errors if they occur
-            string exitFlag = (name == "MARKETING" || name == "NEXUS HUB") ? "-NoExit" : "";
+            // Revert: We want to open a new terminal window for the session to keep CLI context advantages.
+            bool inPlace = false;
 
-            // Use a simpler command structure to avoid quote nesting issues
-            // Removed -NoProfile to ensure 'gemini' (often from npm/nvm) is in the PATH
             var psi = new ProcessStartInfo("powershell.exe")
             {
-                Arguments = $"{exitFlag} -Command \"$Host.UI.RawUI.WindowTitle = '{name} Neural Link'; cd '{path}'; {cmdArgs}\"",
-                UseShellExecute = true,
+                Arguments = $"-NoProfile -Command \"$Host.UI.RawUI.WindowTitle = '{name} Neural Link'; cd '{path}'; {cmdArgs}\"",
+                UseShellExecute = true, // Force new window
                 CreateNoWindow = false
             };
             
@@ -44,11 +42,23 @@ namespace NexusShell.Services
                 if (process != null)
                 {
                     _activeSessions[name] = process;
-                    process.EnableRaisingEvents = true;
-                    process.Exited += (s, e) => {
+                    
+                    if (inPlace)
+                    {
+                        // In-place execution: Wait for Gemini to finish before returning control to the Hub UI.
+                        process.WaitForExit();
                         _activeSessions.TryRemove(name, out _);
                         _historyService.AddEvent($"[grey]Closed:[/] '{name}' session.");
-                    };
+                    }
+                    else
+                    {
+                        // Background execution: Return control immediately.
+                        process.EnableRaisingEvents = true;
+                        process.Exited += (s, e) => {
+                            _activeSessions.TryRemove(name, out _);
+                            _historyService.AddEvent($"[grey]Closed:[/] '{name}' session.");
+                        };
+                    }
                 }
             }
             catch (Exception ex)

@@ -1,56 +1,70 @@
 using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using NexusShell.Interfaces;
 using NexusShell.Models;
 
 namespace NexusShell.Services
 {
     /// <summary>
-    /// Smooth implementation of the Nexus Hub using an Asynchronous Data Engine.
-    /// Decouples heavy I/O (Git/Disk scanning) from the UI input loop to ensure fluid navigation.
+    /// Lead UI Orchestrator v16.2. Manages the side-by-side Hub, Wizards, and CLI Links.
     /// </summary>
     public class UserInterface(
         string reposRoot,
         string conductorRoot,
         IProjectService projectService,
         IHistoryService historyService,
-        ISessionOrchestrator sessionOrchestrator,
-        IMarketingService marketingService,
-        IJournalService journalService,
-        INewProjectService newProjectService,
         IRegistryService registryService,
-        ILayoutService layoutService) : IUserInterface
+        ILayoutService layoutService,
+        ISessionOrchestrator sessionOrchestrator,
+        IChatPersistenceService chatPersistence,
+        IContextService contextService) : IUserInterface
     {
+        private readonly ISessionOrchestrator _sessionOrchestrator = sessionOrchestrator;
         private int _selectedIndex = 0;
         private List<string> _flatMenu = new();
         private List<ProjectInfo> _currentProjects = new();
         private List<HistoryEvent> _recentEvents = new();
+        private List<string> _activeWorkspaces = new() { "⚡ HUB" };
+        private Dictionary<string, NeuralSession> _neuralSessions = new();
+        private int _activeWorkspaceIndex = 0;
         private volatile bool _needsRedraw = true;
+        private volatile bool _forceClear = true;
+        private volatile bool _isModal = false; 
         private readonly object _dataLock = new();
+        private StringBuilder _inputBuffer = new();
+        private int _historyScrollOffset = 0;
 
-        /// <inheritdoc />
         public void Run()
         {
             Console.OutputEncoding = Encoding.UTF8;
-            Console.Title = "FLORISNEXUS AI-OS (Async Engine)";
+            Console.Title = "FLORISNEXUS AI-OS (Neural Kernel v16.2)";
             Console.CursorVisible = false;
 
-            // Start Background Data Sync (Heavy Git/Disk I/O)
             Task.Run(BackgroundDataLoop);
 
-            // UI Input Loop (Instant Response)
             while (true)
             {
                 try {
+                    if (_isModal) { Thread.Sleep(50); continue; }
+
+                    if (!_needsRedraw && _activeWorkspaceIndex > 0)
+                    {
+                        var workspaceName = _activeWorkspaces[_activeWorkspaceIndex];
+                        if (_neuralSessions.TryGetValue(workspaceName, out var s) && s.IsProcessing)
+                        {
+                            _needsRedraw = true;
+                            Thread.Sleep(100); 
+                        }
+                    }
+
                     if (_needsRedraw)
                     {
+                        if (_forceClear) { Console.Clear(); _forceClear = false; }
                         RenderDashboard();
                         _needsRedraw = false;
                     }
@@ -60,46 +74,28 @@ namespace NexusShell.Services
                         var key = Console.ReadKey(true);
                         HandleInput(key);
                     }
-                    else
-                    {
-                        Thread.Sleep(10); // Ultra-low latency for navigation
-                    }
-                } catch (Exception ex) {
-                    AnsiConsole.WriteException(ex);
-                    Console.WriteLine("System Error. Press any key to reboot...");
-                    Console.ReadKey();
+                    else { Thread.Sleep(10); }
+                } catch {
+                    _forceClear = true;
                     _needsRedraw = true;
                 }
             }
         }
 
-        /// <summary>
-        /// Background task that performs heavy Git and History operations without blocking the UI.
-        /// </summary>
         private async Task BackgroundDataLoop()
         {
             while (true)
             {
                 try {
-                    // 1. Fetch data from disk/git
-                    var projects = projectService.GetProjects();
-                    var events = historyService.GetRecentEvents();
-
-                    // 2. Update the Markdown Registry (Legacy sync-tracks logic)
-                    registryService.UpdateRegistry(projects);
-
-                    // 3. Safely update the cache
-                    lock (_dataLock)
-                    {
-                        _currentProjects = projects;
-                        _recentEvents = events;
+                    if (!_isModal) {
+                        var projects = projectService.GetProjects();
+                        var events = historyService.GetRecentEvents();
+                        registryService.UpdateRegistry(projects);
+                        lock (_dataLock) { _currentProjects = projects; _recentEvents = events; }
+                        if (_activeWorkspaceIndex == 0) _needsRedraw = true;
                     }
-
-                    // 4. Trigger redraw
-                    _needsRedraw = true;
-                } catch { /* Ignore background errors to prevent crash */ }
-
-                await Task.Delay(5000); // Sync every 5s in background
+                } catch { }
+                await Task.Delay(5000);
             }
         }
 
@@ -107,220 +103,306 @@ namespace NexusShell.Services
         {
             List<ProjectInfo> projectsCopy;
             List<HistoryEvent> eventsCopy;
-            lock (_dataLock)
+            lock (_dataLock) { projectsCopy = new List<ProjectInfo>(_currentProjects); eventsCopy = new List<HistoryEvent>(_recentEvents); }
+
+            var masterTable = new Table().Border(TableBorder.None).HideHeaders().NoSafeBorder().Expand();
+            masterTable.AddColumn("Main");
+
+            // 1. Header
+            masterTable.AddRow(layoutService.GetHeroHeader());
+            
+            // 2. Tabs
+            masterTable.AddRow(layoutService.GetTabBar(_activeWorkspaces, _activeWorkspaceIndex));
+
+            if (_activeWorkspaceIndex > 0)
             {
-                projectsCopy = new List<ProjectInfo>(_currentProjects);
-                eventsCopy = new List<HistoryEvent>(_recentEvents);
+                string workspaceName = _activeWorkspaces[_activeWorkspaceIndex];
+                var project = projectsCopy.FirstOrDefault(p => p.Name == workspaceName);
+                
+                if (project != null)
+                {
+                    var brief = new Grid().AddColumn(new GridColumn().NoWrap()).AddColumn(new GridColumn());
+                    brief.AddRow("[cyan]Goal:[/]", project.Context.Objective);
+                    brief.AddRow("[cyan]Last Action:[/]", project.Context.Resume.LastOrDefault() ?? "Session Start.");
+                    masterTable.AddRow(new Panel(brief).Header("[bold grey] PROJECT BRIEFING [/]").BorderColor(Color.Grey23));
+                }
+                else masterTable.AddRow(new Rule().RuleStyle("grey dim"));
+
+                masterTable.AddRow(GetWorkspaceHistoryContent(workspaceName));
+            }
+            else
+            {
+                // HUB View
+                masterTable.AddRow(layoutService.GetStrategicFocus());
+                
+                var middleRow = new Table().Border(TableBorder.None).HideHeaders().Expand();
+                middleRow.AddColumn(new TableColumn("").Width(40));
+                middleRow.AddColumn(new TableColumn(""));
+
+                var activityTable = new Table().Border(TableBorder.None).HideHeaders().AddColumn("E");
+                foreach (var h in eventsCopy.Take(3)) activityTable.AddRow($"[grey]{h.Timestamp:HH:mm}[/] {h.Message}");
+                if (!eventsCopy.Any()) activityTable.AddRow("[dim grey]No activity yet.[/]");
+                
+                middleRow.AddRow(new Panel(activityTable).Header("[grey]RECENT ACTIVITY[/]").BorderColor(Color.Grey23).Expand(), new Markup(""));
+                masterTable.AddRow(middleRow);
+
+                masterTable.AddRow(GetFleetViewPanel(projectsCopy));
             }
 
-            Console.Clear();
-            layoutService.RefreshHeader();
-            ShowHistory(eventsCopy);
+            // 5. Global Footer
+            masterTable.AddRow(new Rule().RuleStyle("cyan dim"));
+            masterTable.AddRow(new Markup(" [dim grey]Arrows: Navigate | Enter: Launch | Tab: Switch | F1-F12: Fast Jump | [bold cyan]v16.2 CLI-Powered Neural OS[/][/]"));
+
+            Console.SetCursorPosition(0, 0);
+            AnsiConsole.Write(masterTable);
+        }
+
+        private IRenderable GetFleetViewPanel(List<ProjectInfo> projects)
+        {
+            var saas = projects.Where(p => p.Track == "SAAS").ToList();
+            var local = projects.Where(p => p.Track == "LOCAL").ToList();
+            var other = projects.Where(p => p.Track == "OTHER").ToList();
 
             var coreMenu = new List<string> { 
-                "⚡ META-WORKSPACE (UNIFIED)", 
-                "📢 MARKETING ASSISTANT", 
-                "📔 FOUNDER JOURNAL", 
-                "🏗️ NEW PROJECT", 
-                "🛠️ EVOLVE NEXUS HUB",
-                "📖 HELP & DOCUMENTATION",
-                "⚙️ SYSTEM MAINTENANCE",
-                "🔌 EXIT SHELL" 
+                "⚡ META-WORKSPACE (UNIFIED)", "📢 MARKETING ASSISTANT", "📔 FOUNDER JOURNAL", 
+                "🏗️ NEW PROJECT", "🛠️ EVOLVE NEXUS HUB", "📖 HELP & DOCUMENTATION", "⚙️ SYSTEM MAINTENANCE", "🔌 EXIT SHELL" 
             };
 
-            var saasProjects = projectsCopy.Where(p => p.Track == "SAAS").ToList();
-            var localProjects = projectsCopy.Where(p => p.Track == "LOCAL").ToList();
-            var otherProjects = projectsCopy.Where(p => p.Track == "OTHER").ToList();
+            var menuGrid = new Grid().AddColumn();
+            menuGrid.AddRow("[bold white]» SELECT OPERATION OR NEURAL TRACK[/]");
+            for (int i = 0; i < coreMenu.Count; i++) menuGrid.AddRow(GetMenuItemMarkup(coreMenu[i], i));
+
+            AddGroupToGrid(menuGrid, "GLOBAL SAAS TRACK", saas, coreMenu.Count);
+            AddGroupToGrid(menuGrid, "LOCAL HERO TRACK", local, coreMenu.Count + saas.Count);
+            AddGroupToGrid(menuGrid, "OTHER TRACKS", other, coreMenu.Count + saas.Count + local.Count);
 
             var newFlatMenu = new List<string>(coreMenu);
-            foreach(var p in saasProjects) newFlatMenu.Add("PROJ:" + p.Name);
-            foreach(var p in localProjects) newFlatMenu.Add("PROJ:" + p.Name);
-            foreach(var p in otherProjects) newFlatMenu.Add("PROJ:" + p.Name);
+            foreach(var p in saas) newFlatMenu.Add("PROJ:" + p.Name);
+            foreach(var p in local) newFlatMenu.Add("PROJ:" + p.Name);
+            foreach(var p in other) newFlatMenu.Add("PROJ:" + p.Name);
             _flatMenu = newFlatMenu;
 
-            if (_selectedIndex >= _flatMenu.Count) _selectedIndex = 0;
+            var selected = GetSelectedProject(projects);
+            var briefing = selected != null ? layoutService.GetProjectBriefing(selected) : GetDefaultBriefingPanel();
 
-            AnsiConsole.MarkupLine("[bold grey]» SELECT OPERATION OR NEURAL TRACK (Live Dynamic Registry Active)[/]");
-            
-            for (int i = 0; i < coreMenu.Count; i++)
-            {
-                DrawMenuItem(coreMenu[i], i);
-            }
-
-            DrawGroup("🌍 GLOBAL SAAS TRACK", saasProjects, coreMenu.Count);
-            DrawGroup("🏗️ LOCAL HERO TRACK", localProjects, coreMenu.Count + saasProjects.Count);
-            DrawGroup("📂 OTHER TRACKS", otherProjects, coreMenu.Count + saasProjects.Count + localProjects.Count);
-
-            // Show Active Tools if any are running
-            if (sessionOrchestrator.IsSessionActive("MARKETING") || sessionOrchestrator.IsSessionActive("NEXUS HUB"))
-            {
-                AnsiConsole.MarkupLine("\n  [bold yellow]⚡ ACTIVE TOOLS[/]");
-                if (sessionOrchestrator.IsSessionActive("MARKETING")) AnsiConsole.MarkupLine("      📢 MARKETING ASSISTANT [bold green]●[/]");
-                if (sessionOrchestrator.IsSessionActive("NEXUS HUB")) AnsiConsole.MarkupLine("      🛠️ NEXUS HUB EVOLUTION [bold green]●[/]");
-            }
-
-            AnsiConsole.MarkupLine("\n[dim grey]Arrows: Navigate | Enter: Launch | Background sync is non-blocking.[/]");
+            var layout = new Table().Border(TableBorder.None).HideHeaders().Expand();
+            layout.AddColumn(new TableColumn("").Width(42));
+            layout.AddColumn(new TableColumn(""));
+            layout.AddRow(new Panel(menuGrid).Header("[bold cyan] FLEET VIEW [/]").BorderColor(Color.Cyan1).Expand(), briefing);
+            return layout;
         }
 
-        private void DrawMenuItem(string label, int index)
+        private IRenderable GetWorkspaceHistoryContent(string workspaceName)
         {
-            string color = label.Contains("META") ? "magenta" : 
-                          label.Contains("EXIT") ? "red" : 
-                          label.Contains("EVOLVE") ? "yellow" : "cyan";
+            if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
-            if (index == _selectedIndex)
-                AnsiConsole.MarkupLine($"  [bold {color}]>[/] [{color} invert]{label}[/]");
-            else
-                AnsiConsole.MarkupLine($"    [{color}]{label}[/]");
-        }
+            int availableLines = Math.Max(5, Console.WindowHeight - 28);
+            List<string> history; List<string> sessions;
+            lock (session.Lock) { history = new List<string>(session.History); sessions = new List<string>(session.ResumableSessions); }
 
-        private void DrawGroup(string header, List<ProjectInfo> projects, int startIndex)
-        {
-            if (!projects.Any()) return;
-            AnsiConsole.MarkupLine($"\n  [bold white]{header}[/]");
-            for (int i = 0; i < projects.Count; i++)
-            {
-                int globalIndex = startIndex + i;
-                var p = projects[i];
-                string displayName = GetProjectDisplayName(p);
-                
-                if (globalIndex == _selectedIndex)
-                    AnsiConsole.MarkupLine($"    [green]>[/] [white invert]{displayName}[/]");
-                else
-                    AnsiConsole.MarkupLine($"      {displayName}");
+            var histGrid = new Grid().AddColumn();
+            var displayedCount = 0;
+
+            if (history.Count == 0 && sessions.Count > 0) {
+                histGrid.AddRow("[bold yellow]RECURRING NEURAL PATHS (RESUMABLE SESSIONS):[/]");
+                histGrid.AddRow("[dim grey]Use 'gemini -r [[index]]' or 'gemini -r latest' to resume in CLI.[/]");
+                histGrid.AddRow("");
+                var take = Math.Min(sessions.Count, availableLines - 4);
+                foreach (var s in sessions.Take(take)) histGrid.AddRow($"  [cyan]{Markup.Escape(s)}[/]");
+                displayedCount = take + 3;
+            } else {
+                int skip = Math.Max(0, history.Count - availableLines - _historyScrollOffset);
+                int take = Math.Min(availableLines, history.Count - skip);
+                if (skip > 0) histGrid.AddRow($"[dim grey]  ↑ {skip} more lines above (Arrows to scroll)[/]"); else histGrid.AddRow("");
+                var batch = history.Skip(skip).Take(take).ToList();
+                foreach (var line in batch) histGrid.AddRow(line);
+                displayedCount = batch.Count + 1;
             }
-        }
 
-        private string GetProjectDisplayName(ProjectInfo p)
-        {
-            string icon = p.Type switch { "Mono" => "🐙", "Multi" => "📦", _ => "📁" };
-            string branchInfo = p.Branch != "-" ? $" [grey][[{p.Branch}]][/]" : "";
-            
-            var statusParts = new List<string>();
-            if (p.HasChanges) statusParts.Add("[yellow]![/]");
-            if (!string.IsNullOrEmpty(p.RemoteStatus)) statusParts.Add($"[blue]{p.RemoteStatus}[/]");
-            string status = statusParts.Count > 0 ? $" {string.Join(" ", statusParts)}" : "";
+            for (int i = 0; i < (availableLines - displayedCount); i++) histGrid.AddRow("");
+            if (_historyScrollOffset > 0) histGrid.AddRow($"[dim grey]  ↓ {_historyScrollOffset} lines below[/]"); else histGrid.AddRow("");
 
-            string stats = p.OpenCount > 0 ? $" [blue]({p.OpenCount}x)[/] [dim grey]last: {(p.LastOpened.HasValue ? p.LastOpened.Value.ToString("MMM dd HH:mm") : "-")}[/]" : "";
-            string active = sessionOrchestrator.IsSessionActive(p.Name) ? " [bold green]●[/]" : "";
-            
-            return $"{icon} {p.Name.PadRight(18)}{branchInfo}{status}{stats}{active}";
+            var inputGrid = new Grid().AddColumn();
+            if (session.IsProcessing) {
+                string[] frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+                string frame = frames[(DateTime.Now.Millisecond / 100) % frames.Length];
+                inputGrid.AddRow($"\n  [bold yellow]{frame} CLI INITIALIZING...[/] [grey]Updating context...[/]");
+            } else {
+                inputGrid.AddRow($"\n  [bold cyan]>[/] {_inputBuffer}[blink white]_ [/]");
+                inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch Workspace)[/]");
+            }
+
+            var container = new Grid().AddColumn();
+            container.AddRow(new Panel(histGrid).Header("[bold blue] NEURAL LINK HISTORY [/]").BorderColor(Color.Blue1).Expand());
+            container.AddRow(inputGrid);
+            return container;
         }
 
         private void HandleInput(ConsoleKeyInfo key)
         {
-            switch (key.Key)
-            {
-                case ConsoleKey.UpArrow:
-                    _selectedIndex = (_selectedIndex - 1 + _flatMenu.Count) % _flatMenu.Count;
-                    _needsRedraw = true;
-                    break;
-                case ConsoleKey.DownArrow:
-                    _selectedIndex = (_selectedIndex + 1) % _flatMenu.Count;
-                    _needsRedraw = true;
-                    break;
-                case ConsoleKey.Enter:
-                    ExecuteSelection();
-                    _needsRedraw = true;
-                    break;
+            if (key.Key >= ConsoleKey.F1 && key.Key <= ConsoleKey.F12) {
+                int target = (int)key.Key - (int)ConsoleKey.F1;
+                if (target < _activeWorkspaces.Count) { _activeWorkspaceIndex = target; _historyScrollOffset = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; }
+                return;
+            }
+            if (key.Key == ConsoleKey.Tab) { _activeWorkspaceIndex = (_activeWorkspaceIndex + 1) % _activeWorkspaces.Count; _historyScrollOffset = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; return; }
+
+            if (_activeWorkspaceIndex == 0) {
+                switch (key.Key) {
+                    case ConsoleKey.UpArrow: _selectedIndex = (_selectedIndex - 1 + _flatMenu.Count) % _flatMenu.Count; _needsRedraw = true; break;
+                    case ConsoleKey.DownArrow: _selectedIndex = (_selectedIndex + 1) % _flatMenu.Count; _needsRedraw = true; break;
+                    case ConsoleKey.Enter: ExecuteSelection(); _needsRedraw = true; break;
+                }
+            } else {
+                var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
+                if (key.Key == ConsoleKey.Escape) { _activeWorkspaceIndex = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; }
+                else if (key.Key == ConsoleKey.UpArrow) { _historyScrollOffset++; _needsRedraw = true; }
+                else if (key.Key == ConsoleKey.DownArrow) { _historyScrollOffset = Math.Max(0, _historyScrollOffset - 1); _needsRedraw = true; }
+                else if (key.Key == ConsoleKey.Enter) {
+                    string p = _inputBuffer.ToString().Trim();
+                    if (!string.IsNullOrEmpty(p) && !session.IsProcessing) { if (session.WizardStep > 0) ProcessWizardStep(session, p); else SubmitUserPrompt(session, p); }
+                    _inputBuffer.Clear(); _needsRedraw = true;
+                }
+                else if (key.Key == ConsoleKey.Backspace) { if (_inputBuffer.Length > 0) _inputBuffer.Remove(_inputBuffer.Length - 1, 1); _needsRedraw = true; }
+                else if (!char.IsControl(key.KeyChar)) { _inputBuffer.Append(key.KeyChar); _needsRedraw = true; }
             }
         }
 
         private void ExecuteSelection()
         {
-            if (_selectedIndex < 0 || _selectedIndex >= _flatMenu.Count) return;
             string selection = _flatMenu[_selectedIndex];
-
-            if (selection.StartsWith("PROJ:"))
-            {
-                string projectName = selection.Substring(5);
-                ProjectInfo? project;
-                lock(_dataLock) { project = _currentProjects.FirstOrDefault(p => p.Name == projectName); }
-                
-                if (project != null)
-                {
-                    historyService.RecordLaunch(project.Name);
-                    historyService.AddEvent($"[green]Launched:[/] '{project.Name}' session.");
-                    sessionOrchestrator.LaunchGemini(project.Name, project.Path);
-                }
+            if (selection.StartsWith("PROJ:")) {
+                var p = _currentProjects.FirstOrDefault(x => x.Name == selection.Substring(5));
+                if (p != null) InitializeWorkspace(p.Name, p.Path, triggerPrompt: "Summarize status.");
             }
-            else if (selection.Contains("EXIT SHELL")) { Environment.Exit(0); }
-            else if (selection.Contains("META-WORKSPACE")) { LaunchMeta(); }
-            else if (selection.Contains("MARKETING ASSISTANT")) { marketingService.Execute(); }
-            else if (selection.Contains("FOUNDER JOURNAL")) { journalService.Execute(); }
-            else if (selection.Contains("NEW PROJECT")) { newProjectService.Execute(); }
-            else if (selection.Contains("EVOLVE NEXUS HUB")) { EvolveHub(); }
-            else if (selection.Contains("HELP & DOCUMENTATION")) { ShowHelp(); }
-            else if (selection.Contains("SYSTEM MAINTENANCE")) { ShowMaintenance(); }
+            else if (selection.Contains("EXIT")) Environment.Exit(0);
+            else if (selection.Contains("META")) {
+                string args = "--include-directories " + string.Join(" ", _currentProjects.Select(p => $".\\{p.Name}"));
+                InitializeWorkspace("UNIFIED ECOSYSTEM", reposRoot, args, triggerPrompt: "Ecosystem status.");
+            }
+            else if (selection.Contains("MARKETING")) StartMarketingWizard();
+            else if (selection.Contains("JOURNAL")) StartJournalWizard();
+            else if (selection.Contains("NEW PROJECT")) InitializeWorkspace("SCAFFOLDER", conductorRoot, triggerPrompt: "Explain templates.", systemPromptOverride: "Architect AI.");
+            else if (selection.Contains("EVOLVE")) InitializeWorkspace("NEXUS HUB", Path.Combine(conductorRoot, "NexusShell"), triggerPrompt: "Hub status.");
+            else if (selection.Contains("HELP")) ShowHelp();
+            else if (selection.Contains("MAINTENANCE")) ShowMaintenance();
         }
 
-        private void LaunchMeta()
-        {
-            List<string> allDirs;
-            lock(_dataLock) { allDirs = _currentProjects.Select(p => p.Name).ToList(); }
-            string includeArgs = "--include-directories " + string.Join(" ", allDirs.Select(d => $".\\{d}"));
-            historyService.RecordLaunch("META-WORKSPACE");
-            historyService.AddEvent("[green]Launched:[/] 'UNIFIED ECOSYSTEM' session.");
-            sessionOrchestrator.LaunchGemini("UNIFIED ECOSYSTEM", reposRoot, includeArgs);
+        private void StartJournalWizard() {
+            InitializeWorkspace("JOURNAL", conductorRoot);
+            var s = _neuralSessions["JOURNAL"]; s.WizardStep = 1;
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Welcome. Step 1: Key events/hurdles?");
+            _needsRedraw = true;
         }
 
-        private void EvolveHub()
-        {
-            var hubPath = Path.Combine(conductorRoot, "NexusShell");
-            historyService.RecordLaunch("NEXUS HUB");
-            historyService.AddEvent("[green]Launched:[/] 'NEXUS HUB' evolution session.");
-            sessionOrchestrator.LaunchGemini("NEXUS HUB", hubPath);
+        private void StartMarketingWizard() {
+            InitializeWorkspace("MARKETING", reposRoot);
+            var s = _neuralSessions["MARKETING"]; s.WizardStep = 1;
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Strategist ready. Step 1: Target project?");
+            _needsRedraw = true;
         }
 
-        private void ShowHistory(List<HistoryEvent> events)
-        {
-            if (events.Count > 0)
-            {
-                var historyTable = new Table().Border(TableBorder.None).HideHeaders();
-                historyTable.AddColumn("Time");
-                historyTable.AddColumn("Event");
-                foreach (var h in events.Take(3))
-                {
-                    historyTable.AddRow($"[grey]{h.Timestamp:HH:mm:ss.fff}[/]", h.Message);
-                }
-                AnsiConsole.Write(new Panel(historyTable).Header("[grey]RECENT ACTIVITY[/]").BorderColor(Color.Grey23));
+        private void ProcessWizardStep(NeuralSession s, string i) {
+            string ts = DateTime.Now.ToString("HH:mm"); s.History.Add($"[dim grey]{ts}[/] [bold cyan]YOU:[/] {Markup.Escape(i)}");
+            if (s.ProjectName == "JOURNAL") {
+                if (s.WizardStep == 1) { s.WizardData["E"] = i; s.WizardStep = 2; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Step 2: Key decisions?"); }
+                else if (s.WizardStep == 2) { s.WizardData["D"] = i; s.WizardStep = 3; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Step 3: Lessons learned?"); }
+                else if (s.WizardStep == 3) { s.WizardData["L"] = i; s.WizardStep = 0; FinalizeJournal(s); }
+            } else if (s.ProjectName == "MARKETING") {
+                if (s.WizardStep == 1) { s.WizardData["T"] = i; s.WizardStep = 2; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Step 2: Hook/Achievement?"); }
+                else if (s.WizardStep == 2) { s.WizardData["H"] = i; s.WizardStep = 0; FinalizeMarketing(s); }
             }
         }
 
-        private void ShowMaintenance()
-        {
-            Console.CursorVisible = true;
-            var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("MAINTENANCE").AddChoices("Force Sync Registry", "Clear History", "Back"));
-            Console.CursorVisible = false;
-            if (choice == "Back") return;
-            if (choice == "Force Sync Registry") 
-            { 
-                var projects = projectService.GetProjects();
-                registryService.UpdateRegistry(projects);
-                AnsiConsole.MarkupLine("[green]✅ Tracks Registry updated.[/]");
-                Thread.Sleep(1000);
+        private void FinalizeJournal(NeuralSession s) {
+            string date = DateTime.Now.ToString("yyyy-MM-dd");
+            string path = Path.Combine(conductorRoot, "journal", $"{date}.md");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, $"# Journal {date}\n\n## Events\n{s.WizardData["E"]}\n\n## Decisions\n{s.WizardData["D"]}\n\n## Lessons\n{s.WizardData["L"]}");
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Journal saved. Analyzing...");
+            SubmitTriggerPrompt(s, $"Read journal/{date}.md and summarize.");
+        }
+
+        private void FinalizeMarketing(NeuralSession s) {
+            File.AppendAllText(Path.Combine(conductorRoot, "marketing_drafts.md"), $"\n- {DateTime.Now}: {s.WizardData["T"]} Hook: {s.WizardData["H"]}");
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Draft logged. Generating social content...");
+            SubmitTriggerPrompt(s, $"Generate 3 social posts for {s.WizardData["T"]} with hook {s.WizardData["H"]} using nexus-social-marketing skill.");
+        }
+
+        private void ShowMaintenance() {
+            _isModal = true; Console.Clear(); AnsiConsole.Write(layoutService.GetHeroHeader());
+            var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title(" MAINTENANCE ").AddChoices("Sync Registry", "Clear History", "Back"));
+            if (choice == "Sync Registry") { registryService.UpdateRegistry(projectService.GetProjects()); Thread.Sleep(1000); }
+            else if (choice == "Clear History") { historyService.ClearAll(); Thread.Sleep(1000); }
+            _isModal = false; _forceClear = true; _needsRedraw = true;
+        }
+
+        private void ShowHelp() {
+            _isModal = true; Console.Clear(); AnsiConsole.Write(layoutService.GetHeroHeader());
+            AnsiConsole.Write(new Panel(new Markup("[bold cyan]HELP[/]\n\n• Arrows: Nav\n• Tab/F1-F12: Switch\n• Esc: Hub\n• CLI Logic")).Expand());
+            Console.ReadKey(); _isModal = false; _forceClear = true; _needsRedraw = true;
+        }
+
+        private void SubmitUserPrompt(NeuralSession s, string p) {
+            lock (s.Lock) { s.Turns.Add(new ConversationTurn { Role = "user", Content = p }); s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold cyan]YOU:[/] {Markup.Escape(p)}"); }
+            s.IsProcessing = true; ExecutePromptInBackground(s, p);
+        }
+
+        private void SubmitTriggerPrompt(NeuralSession s, string p) { s.IsProcessing = true; ExecutePromptInBackground(s, p); }
+
+        private void ExecutePromptInBackground(NeuralSession s, string p) {
+            Task.Run(async () => {
+                try {
+                    ProjectContext? ctx = null; lock(_dataLock) { ctx = _currentProjects.FirstOrDefault(x => x.Name == s.ProjectName)?.Context; }
+                    string res = await ExecuteCliPrompt(s, p, ctx);
+                    lock (s.Lock) { s.Turns.Add(new ConversationTurn { Role = "ai", Content = res }); s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]AI:[/] {MarkdownRenderer.ToSpectreMarkup(res)}"); }
+                    _historyScrollOffset = 0; List<ConversationTurn> save; lock(s.Lock) { save = s.Turns.ToList(); } chatPersistence.SaveHistory(s.ProjectPath, save);
+                } catch (Exception ex) { lock(s.Lock) { s.History.Add($"[red]Error:[/] {Markup.Escape(ex.Message)}"); } }
+                finally { s.IsProcessing = false; _needsRedraw = true; }
+            });
+        }
+
+        private async Task<string> ExecuteCliPrompt(NeuralSession s, string p, ProjectContext? ctx) {
+            var sb = new StringBuilder(); if (!string.IsNullOrEmpty(s.SystemPrompt)) sb.AppendLine(s.SystemPrompt); else if (ctx != null) sb.AppendLine($"Project: {s.ProjectName} | Goal: {ctx.Objective}");
+            List<ConversationTurn> turns; lock(s.Lock) { turns = s.Turns.SkipLast(1).TakeLast(5).ToList(); }
+            if (turns.Any()) { sb.AppendLine("--- HISTORY ---"); foreach (var t in turns) sb.AppendLine($"{(t.Role == "user" ? "USER" : "AI")}: {t.Content}"); sb.AppendLine("--- PROMPT ---"); }
+            sb.Append(p); return await ExecuteHeadlessPrompt(s.ProjectPath, sb.ToString(), s.ExtraArgs);
+        }
+
+        private async Task<string> ExecuteHeadlessPrompt(string path, string p, string a) {
+            var psi = new ProcessStartInfo("powershell.exe") { Arguments = $"-NoProfile -Command \"cd '{path}'; gemini -o text {a}\"", RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8 };
+            using var proc = Process.Start(psi); if (proc == null) return "Failed.";
+            using (var w = new StreamWriter(proc.StandardInput.BaseStream, new UTF8Encoding(false))) { await w.WriteAsync(p); await w.FlushAsync(); }
+            string o = await proc.StandardOutput.ReadToEndAsync(); await proc.WaitForExitAsync();
+            return string.Join("\n", o.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l) && !l.StartsWith("Loading") && !l.StartsWith("Server") && !l.Contains("supports")));
+        }
+
+        private void InitializeWorkspace(string name, string path, string extraArgs = "", string systemPromptOverride = "", string greeterQuestion = "", string triggerPrompt = "") {
+            if (!_activeWorkspaces.Contains(name)) {
+                _activeWorkspaces.Add(name); var turns = chatPersistence.LoadHistory(path);
+                var s = new NeuralSession { ProjectName = name, ProjectPath = path, ExtraArgs = extraArgs, SystemPrompt = systemPromptOverride, Turns = turns };
+                foreach (var t in turns) s.History.Add($"[dim grey]{t.Timestamp:HH:mm}[/] [{(t.Role == "user" ? "bold cyan]YOU" : "bold green]AI")}:[/] {MarkdownRenderer.ToSpectreMarkup(t.Content)}");
+                _neuralSessions[name] = s; _ = FetchResumableSessionsAsync(s); if (!string.IsNullOrEmpty(triggerPrompt)) SubmitTriggerPrompt(s, triggerPrompt);
             }
-            if (choice == "Clear History") { historyService.ClearAll(); Thread.Sleep(500); }
+            _activeWorkspaceIndex = _activeWorkspaces.IndexOf(name); _historyScrollOffset = 0; _needsRedraw = true; _forceClear = true;
         }
 
-        private void ShowHelp()
-        {
-            Console.Clear();
-            layoutService.DrawHeroHeader();
-            AnsiConsole.MarkupLine("[bold cyan]NEXUS HELP SYSTEM[/] - Press any key to return.");
-            AnsiConsole.MarkupLine("• Use Arrow Keys to navigate the dashboard.");
-            AnsiConsole.MarkupLine("• Navigation is now ASYNCHRONOUS and fluid.");
-            AnsiConsole.MarkupLine("• [yellow]Live Registry:[/] The hub automatically maintains 'tracks.md'.");
-            Console.ReadKey();
+        private async Task FetchResumableSessionsAsync(NeuralSession s) {
+            var psi = new ProcessStartInfo("powershell.exe") { Arguments = $"-NoProfile -Command \"cd '{s.ProjectPath}'; gemini --list-sessions\"", RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8 };
+            try { using var p = Process.Start(psi); if (p == null) return; string o = await p.StandardOutput.ReadToEndAsync(); await p.WaitForExitAsync();
+                if (p.ExitCode == 0) lock(s.Lock) { s.ResumableSessions = o.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l) && char.IsDigit(l[0])).ToList(); }
+            } catch { }
         }
 
-        private void RunScript(string scriptName, bool wait)
-        {
-            var scriptPath = Path.Combine(conductorRoot, scriptName);
-            var psi = new ProcessStartInfo("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\"") { UseShellExecute = false };
-            historyService.AddEvent($"[cyan]Running:[/] {scriptName}");
-            var proc = Process.Start(psi);
-            if (wait) { proc?.WaitForExit(); Console.ReadKey(); }
+        private IRenderable GetDefaultBriefingPanel() => new Panel("[dim grey]Select a project to view its intelligence context.[/]").Header("[bold grey] BRIEFING [/]").Expand();
+        private string GetMenuItemMarkup(string l, int i) => i == _selectedIndex ? $"  [bold cyan]>[/] [cyan invert]{l}[/]" : $"    [cyan]{l}[/]";
+        private ProjectInfo? GetSelectedProject(List<ProjectInfo> p) { string s = _flatMenu[_selectedIndex]; return s.StartsWith("PROJ:") ? p.FirstOrDefault(x => x.Name == s.Substring(5)) : null; }
+        private string GetProjectDisplayName(ProjectInfo p) { string act = _neuralSessions.TryGetValue(p.Name, out var s) && s.IsProcessing ? " [bold yellow]●[/]" : _activeWorkspaces.Contains(p.Name) ? " [bold green]●[/]" : "";
+            return $"{(p.Type=="Mono"?"🐙":"📁")} {p.Name.PadRight(18)} [grey][[{p.Branch}]][/]{(p.HasChanges?" [yellow]![/]":"")}{act}";
+        }
+        private void AddGroupToGrid(Grid g, string h, List<ProjectInfo> p, int s) {
+            if (!p.Any()) return; g.AddRow($"\n  [bold white]{h}[/]");
+            for (int i=0; i<p.Count; i++) { int idx = s+i; string d = GetProjectDisplayName(p[i]); g.AddRow(idx == _selectedIndex ? $"    [green]>[/] [white invert]{d}[/]" : $"      {d}"); }
         }
     }
 }
