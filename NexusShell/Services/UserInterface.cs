@@ -290,7 +290,7 @@ namespace NexusShell.Services
                 }
 
                 inputGrid.AddRow($"\n{promptPrefix} {_inputBuffer}[blink white]_ [/]");
-                inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch Workspace)[/]");
+                inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch | Ctrl+W: Close | /clear: Empty History)[/]");
             }
 
             var container = new Grid().AddColumn();
@@ -327,6 +327,14 @@ namespace NexusShell.Services
                     string p = _inputBuffer.ToString().Trim();
                     if (p.Equals("/close", StringComparison.OrdinalIgnoreCase) || p.Equals("exit", StringComparison.OrdinalIgnoreCase)) {
                         CloseWorkspace(_activeWorkspaces[_activeWorkspaceIndex]);
+                    }
+                    else if (p.Equals("/clear", StringComparison.OrdinalIgnoreCase)) {
+                        lock (session.Lock) {
+                            session.History.Clear();
+                            session.Turns.Clear();
+                            session.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]SYSTEM:[/] History cleared.");
+                        }
+                        chatPersistence.SaveHistory(session.ProjectPath, new List<ConversationTurn>());
                     }
                     else if (!string.IsNullOrEmpty(p) && !session.IsProcessing) { 
                         if (session.WizardStep > 0) ProcessWizardStep(session, p); else SubmitUserPrompt(session, p); 
