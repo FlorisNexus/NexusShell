@@ -170,8 +170,8 @@ namespace NexusShell.Services
                 "🏗️  NEW PROJECT", 
                 "🛠️  EVOLVE NEXUS HUB", 
                 "📖 HELP & DOCUMENTATION", 
-                "⚙️ SYSTEM MAINTENANCE", 
-                "🔌 EXIT SHELL" 
+                "⚙️  SYSTEM MAINTENANCE", 
+                "🔌  EXIT SHELL" 
             };
 
             var menuGrid = new Grid().AddColumn();
