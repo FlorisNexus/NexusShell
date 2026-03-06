@@ -291,11 +291,12 @@ namespace NexusShell.Services
                     promptPrefix = $"  [bold yellow][[{session.ProjectName}: {wizardContext}]][/] [bold cyan]>[/]";
                 }
 
-                inputGrid.AddRow($"\n{promptPrefix} {_inputBuffer}[blink white]_ [/]");
+                inputGrid.AddRow($"\n{promptPrefix} {session.InputBuffer}[blink white]_ [/]");
                 inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch | Ctrl+W: Close | /clear: Empty History)[/]");
             }
 
-            var container = new Grid().AddColumn();
+            var container = new Table().Border(TableBorder.None).HideHeaders().Expand();
+            container.AddColumn("");
             container.AddRow(new Panel(histGrid).Header("[bold blue] NEURAL LINK HISTORY [/]").BorderColor(Color.Blue1).Expand());
             container.AddRow(inputGrid);
             return container;
@@ -305,10 +306,10 @@ namespace NexusShell.Services
         {
             if (key.Key >= ConsoleKey.F1 && key.Key <= ConsoleKey.F12) {
                 int target = (int)key.Key - (int)ConsoleKey.F1;
-                if (target < _activeWorkspaces.Count) { _activeWorkspaceIndex = target; _historyScrollOffset = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; }
+                if (target < _activeWorkspaces.Count) { _activeWorkspaceIndex = target; _historyScrollOffset = 0; _needsRedraw = true; _forceClear = true; }
                 return;
             }
-            if (key.Key == ConsoleKey.Tab) { _activeWorkspaceIndex = (_activeWorkspaceIndex + 1) % _activeWorkspaces.Count; _historyScrollOffset = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; return; }
+            if (key.Key == ConsoleKey.Tab) { _activeWorkspaceIndex = (_activeWorkspaceIndex + 1) % _activeWorkspaces.Count; _historyScrollOffset = 0; _needsRedraw = true; _forceClear = true; return; }
 
             if (_activeWorkspaceIndex == 0) {
                 switch (key.Key) {
@@ -321,12 +322,12 @@ namespace NexusShell.Services
                 }
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
-                if (key.Key == ConsoleKey.Escape) { _activeWorkspaceIndex = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; }
+                if (key.Key == ConsoleKey.Escape) { _activeWorkspaceIndex = 0; _needsRedraw = true; _forceClear = true; }
                 else if (key.Key == ConsoleKey.W && key.Modifiers.HasFlag(ConsoleModifiers.Control)) { CloseWorkspace(_activeWorkspaces[_activeWorkspaceIndex]); }
                 else if (key.Key == ConsoleKey.UpArrow) { _historyScrollOffset++; _needsRedraw = true; }
                 else if (key.Key == ConsoleKey.DownArrow) { _historyScrollOffset = Math.Max(0, _historyScrollOffset - 1); _needsRedraw = true; }
                 else if (key.Key == ConsoleKey.Enter) {
-                    string p = _inputBuffer.ToString().Trim();
+                    string p = session.InputBuffer.ToString().Trim();
                     if (p.Equals("/close", StringComparison.OrdinalIgnoreCase) || p.Equals("exit", StringComparison.OrdinalIgnoreCase)) {
                         CloseWorkspace(_activeWorkspaces[_activeWorkspaceIndex]);
                     }
@@ -341,10 +342,10 @@ namespace NexusShell.Services
                     else if (!string.IsNullOrEmpty(p) && !session.IsProcessing) { 
                         if (session.WizardStep > 0) ProcessWizardStep(session, p); else SubmitUserPrompt(session, p); 
                     }
-                    _inputBuffer.Clear(); _needsRedraw = true;
+                    session.InputBuffer.Clear(); _needsRedraw = true;
                 }
-                else if (key.Key == ConsoleKey.Backspace) { if (_inputBuffer.Length > 0) _inputBuffer.Remove(_inputBuffer.Length - 1, 1); _needsRedraw = true; }
-                else if (!char.IsControl(key.KeyChar)) { _inputBuffer.Append(key.KeyChar); _needsRedraw = true; }
+                else if (key.Key == ConsoleKey.Backspace) { if (session.InputBuffer.Length > 0) session.InputBuffer.Remove(session.InputBuffer.Length - 1, 1); _needsRedraw = true; }
+                else if (!char.IsControl(key.KeyChar)) { session.InputBuffer.Append(key.KeyChar); _needsRedraw = true; }
             }
         }
 

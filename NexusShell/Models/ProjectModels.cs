@@ -58,6 +58,11 @@ namespace NexusShell.Models
         /// </summary>
         public Dictionary<string, string> WizardData { get; set; } = new();
 
+        /// <summary>
+        /// Stores the user's current input text to preserve it across tab switches.
+        /// </summary>
+        public System.Text.StringBuilder InputBuffer { get; set; } = new();
+
         private volatile bool _isProcessing = false;
 
         /// <summary>
