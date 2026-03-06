@@ -86,6 +86,7 @@ namespace NexusShell.Services
                 }
                 catch (Exception ex)
                 {
+                    File.AppendAllText("nexus_crash.log", $"{DateTime.Now}: {ex}\n");
                     _isModal = true;
                     Console.Clear();
                     AnsiConsole.WriteException(ex);
@@ -247,8 +248,9 @@ namespace NexusShell.Services
         {
             if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
-            // We let Spectre.Console handle the clipping.
-            int panelHeight = Math.Max(5, Console.WindowHeight - 20); // Header(6) + Tabs(4) + Brief(3) + Input(4) + Footer(3)
+            // Strict height calculation to prevent any overflow.
+            // Header(6) + Tabs(4) + Brief(3) + Input(4) + Footer(3) + SafetyMargin(5) = 25
+            int panelHeight = Math.Max(5, Console.WindowHeight - 25); 
             
             List<string> history; List<string> sessions;
             lock (session.Lock) { history = new List<string>(session.History); sessions = new List<string>(session.ResumableSessions); }
@@ -261,10 +263,17 @@ namespace NexusShell.Services
                 histGrid.AddRow("");
                 foreach (var s in sessions.Take(20)) histGrid.AddRow($"  [cyan]{Markup.Escape(s)}[/]");
             } else {
+                // Ensure we don't try to take more lines than exist or pad negative numbers
                 int skip = Math.Max(0, history.Count - panelHeight - _historyScrollOffset + 5);
                 if (skip > 0) histGrid.AddRow($"[dim grey]  ↑ {skip} more lines above (Arrows to scroll)[/]");
                 var batch = history.Skip(skip).ToList();
-                foreach (var line in batch) histGrid.AddRow(line);
+                
+                // Truncate extremely long individual lines that might bypass Panel boundaries
+                foreach (var line in batch) 
+                {
+                    string safeLine = line.Length > 2000 ? line.Substring(0, 2000) + "..." : line;
+                    histGrid.AddRow(safeLine);
+                }
             }
 
             if (_historyScrollOffset > 0) histGrid.AddRow($"[dim grey]  ↓ {_historyScrollOffset} lines below[/]");
