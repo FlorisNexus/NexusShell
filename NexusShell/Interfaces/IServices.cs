@@ -116,6 +116,22 @@ namespace NexusShell.Interfaces
     }
 
     /// <summary>
+    /// Service for calling the local Gemini CLI directly.
+    /// </summary>
+    public interface ICliExecutionService
+    {
+        /// <summary>
+        /// Executes a headless prompt using the local gemini CLI and yields output incrementally.
+        /// </summary>
+        IAsyncEnumerable<string> StreamPromptAsync(string workingDirectory, string prompt, string extraArgs = "");
+        
+        /// <summary>
+        /// Executes a headless prompt and returns the full output.
+        /// </summary>
+        Task<string> ExecutePromptAsync(string workingDirectory, string prompt, string extraArgs = "");
+    }
+
+    /// <summary>
     /// Service for managing the CLI dashboard and user interactions.
     /// </summary>
     public interface IUserInterface

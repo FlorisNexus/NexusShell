@@ -51,7 +51,7 @@ namespace NexusShell
                 .Build();
 
             string reposRoot = config["ReposRoot"] ?? @"C:\Users\flori\source\repos";
-            string conductorRoot = config["ConductorRoot"] ?? @"C:\Users\flori\source\repos\NexusShell";
+            string conductorRoot = config["ConductorRoot"] ?? @"C:\Users\flori\source\repos\conductor";
 
             return Host.CreateDefaultBuilder(args)
                 .ConfigureServices((_, services) =>
@@ -64,6 +64,7 @@ namespace NexusShell
                     services.AddSingleton<ILayoutService, LayoutService>();
                     services.AddSingleton<IContextService, ContextService>();
                     services.AddSingleton<IRegistryService, RegistryService>();
+                    services.AddSingleton<ICliExecutionService, CliExecutionService>();
                     services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>();
                     services.AddSingleton<IHistoryService>(sp => new HistoryService(sp.GetRequiredService<NexusSettings>().ConductorRoot));
                     services.AddSingleton<IProjectService>(sp => new ProjectService(
@@ -74,15 +75,14 @@ namespace NexusShell
 
                     // UI
                     services.AddSingleton<IUserInterface, UserInterface>(sp => new UserInterface(
-                        sp.GetRequiredService<NexusSettings>().ReposRoot,
-                        sp.GetRequiredService<NexusSettings>().ConductorRoot,
+                        sp.GetRequiredService<NexusSettings>(),
                         sp.GetRequiredService<IProjectService>(),
                         sp.GetRequiredService<IHistoryService>(),
                         sp.GetRequiredService<IRegistryService>(),
                         sp.GetRequiredService<ILayoutService>(),
                         sp.GetRequiredService<ISessionOrchestrator>(),
                         sp.GetRequiredService<IChatPersistenceService>(),
-                        sp.GetRequiredService<IContextService>()));
+                        sp.GetRequiredService<ICliExecutionService>()));
                 });
         }
     }

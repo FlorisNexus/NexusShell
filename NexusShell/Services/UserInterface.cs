@@ -14,17 +14,17 @@ namespace NexusShell.Services
     /// Lead UI Orchestrator v16.2. Manages the side-by-side Hub, Wizards, and CLI Links.
     /// </summary>
     public class UserInterface(
-        string reposRoot,
-        string conductorRoot,
+        NexusSettings settings,
         IProjectService projectService,
         IHistoryService historyService,
         IRegistryService registryService,
         ILayoutService layoutService,
         ISessionOrchestrator sessionOrchestrator,
         IChatPersistenceService chatPersistence,
-        IContextService contextService) : IUserInterface
+        ICliExecutionService cliExecutionService) : IUserInterface
     {
         private readonly ISessionOrchestrator _sessionOrchestrator = sessionOrchestrator;
+        private readonly NexusSettings _settings = settings;
         private int _selectedIndex = 0;
         private List<string> _flatMenu = new();
         private List<ProjectInfo> _currentProjects = new();
@@ -42,7 +42,7 @@ namespace NexusShell.Services
         public void Run()
         {
             Console.OutputEncoding = Encoding.UTF8;
-            Console.Title = "FLORISNEXUS AI-OS (Neural Kernel v16.2)";
+            Console.Title = $"FLORISNEXUS AI-OS (Neural Kernel {_settings.Version})";
             Console.CursorVisible = false;
 
             Task.Run(BackgroundDataLoop);
@@ -151,7 +151,7 @@ namespace NexusShell.Services
 
             // 5. Global Footer
             masterTable.AddRow(new Rule().RuleStyle("cyan dim"));
-            masterTable.AddRow(new Markup(" [dim grey]Arrows: Navigate | Enter: Launch | Tab: Switch | F1-F12: Fast Jump | [bold cyan]v16.2 CLI-Powered Neural OS[/][/]"));
+            masterTable.AddRow(new Markup($" [dim grey]Arrows: Navigate | Enter: Launch | Tab: Switch | F1-F12: Fast Jump | [bold cyan]{_settings.Version} CLI-Powered Neural OS[/][/]"));
 
             Console.SetCursorPosition(0, 0);
             AnsiConsole.Write(masterTable);
@@ -164,8 +164,14 @@ namespace NexusShell.Services
             var other = projects.Where(p => p.Track == "OTHER").ToList();
 
             var coreMenu = new List<string> { 
-                "⚡ META-WORKSPACE (UNIFIED)", "📢 MARKETING ASSISTANT", "📔 FOUNDER JOURNAL", 
-                "🏗️ NEW PROJECT", "🛠️ EVOLVE NEXUS HUB", "📖 HELP & DOCUMENTATION", "⚙️ SYSTEM MAINTENANCE", "🔌 EXIT SHELL" 
+                "⚡ META-WORKSPACE (UNIFIED)", 
+                "📢 MARKETING ASSISTANT", 
+                "📔 FOUNDER JOURNAL", 
+                "🏗️  NEW PROJECT", 
+                "🛠️  EVOLVE NEXUS HUB", 
+                "📖 HELP & DOCUMENTATION", 
+                "⚙️ SYSTEM MAINTENANCE", 
+                "🔌 EXIT SHELL" 
             };
 
             var menuGrid = new Grid().AddColumn();
@@ -228,7 +234,15 @@ namespace NexusShell.Services
                 string frame = frames[(DateTime.Now.Millisecond / 100) % frames.Length];
                 inputGrid.AddRow($"\n  [bold yellow]{frame} CLI INITIALIZING...[/] [grey]Updating context...[/]");
             } else {
-                inputGrid.AddRow($"\n  [bold cyan]>[/] {_inputBuffer}[blink white]_ [/]");
+                string promptPrefix = "  [bold cyan]>[/]";
+                if (session.WizardStep > 0)
+                {
+                    string wizardContext = session.ProjectName == "JOURNAL" ? $"Step {session.WizardStep}" : 
+                                           (session.ProjectName == "MARKETING" ? $"Step {session.WizardStep}" : "Wizard");
+                    promptPrefix = $"  [bold yellow][[{session.ProjectName}: {wizardContext}]][/] [bold cyan]>[/]";
+                }
+
+                inputGrid.AddRow($"\n{promptPrefix} {_inputBuffer}[blink white]_ [/]");
                 inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch Workspace)[/]");
             }
 
@@ -252,6 +266,7 @@ namespace NexusShell.Services
                     case ConsoleKey.UpArrow: _selectedIndex = (_selectedIndex - 1 + _flatMenu.Count) % _flatMenu.Count; _needsRedraw = true; break;
                     case ConsoleKey.DownArrow: _selectedIndex = (_selectedIndex + 1) % _flatMenu.Count; _needsRedraw = true; break;
                     case ConsoleKey.Enter: ExecuteSelection(); _needsRedraw = true; break;
+                    case ConsoleKey.C: TriggerCommitForSelectedProject(); break;
                 }
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
@@ -268,6 +283,15 @@ namespace NexusShell.Services
             }
         }
 
+        private void TriggerCommitForSelectedProject()
+        {
+            var p = GetSelectedProject(_currentProjects);
+            if (p != null && p.HasChanges)
+            {
+                InitializeWorkspace(p.Name, p.Path, triggerPrompt: "Run git status. Then, based on the changes, generate a concise, atomic git commit message and execute 'git commit -m \"<message>\"'.");
+            }
+        }
+
         private void ExecuteSelection()
         {
             string selection = _flatMenu[_selectedIndex];
@@ -278,25 +302,25 @@ namespace NexusShell.Services
             else if (selection.Contains("EXIT")) Environment.Exit(0);
             else if (selection.Contains("META")) {
                 string args = "--include-directories " + string.Join(" ", _currentProjects.Select(p => $".\\{p.Name}"));
-                InitializeWorkspace("UNIFIED ECOSYSTEM", reposRoot, args, triggerPrompt: "Ecosystem status.");
+                InitializeWorkspace("UNIFIED ECOSYSTEM", _settings.ReposRoot, args, triggerPrompt: "Ecosystem status.");
             }
             else if (selection.Contains("MARKETING")) StartMarketingWizard();
             else if (selection.Contains("JOURNAL")) StartJournalWizard();
-            else if (selection.Contains("NEW PROJECT")) InitializeWorkspace("SCAFFOLDER", conductorRoot, triggerPrompt: "Explain templates.", systemPromptOverride: "Architect AI.");
-            else if (selection.Contains("EVOLVE")) InitializeWorkspace("NEXUS HUB", Path.Combine(conductorRoot, "NexusShell"), triggerPrompt: "Hub status.");
+            else if (selection.Contains("NEW PROJECT")) InitializeWorkspace("SCAFFOLDER", _settings.ConductorRoot, triggerPrompt: "Explain templates.", systemPromptOverride: "Architect AI.");
+            else if (selection.Contains("EVOLVE")) InitializeWorkspace("NEXUS HUB", Path.Combine(_settings.ConductorRoot, "NexusShell"), triggerPrompt: "Hub status.");
             else if (selection.Contains("HELP")) ShowHelp();
             else if (selection.Contains("MAINTENANCE")) ShowMaintenance();
         }
 
         private void StartJournalWizard() {
-            InitializeWorkspace("JOURNAL", conductorRoot);
+            InitializeWorkspace("JOURNAL", _settings.ConductorRoot);
             var s = _neuralSessions["JOURNAL"]; s.WizardStep = 1;
             s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Welcome. Step 1: Key events/hurdles?");
             _needsRedraw = true;
         }
 
         private void StartMarketingWizard() {
-            InitializeWorkspace("MARKETING", reposRoot);
+            InitializeWorkspace("MARKETING", _settings.ReposRoot);
             var s = _neuralSessions["MARKETING"]; s.WizardStep = 1;
             s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Strategist ready. Step 1: Target project?");
             _needsRedraw = true;
@@ -316,7 +340,7 @@ namespace NexusShell.Services
 
         private void FinalizeJournal(NeuralSession s) {
             string date = DateTime.Now.ToString("yyyy-MM-dd");
-            string path = Path.Combine(conductorRoot, "journal", $"{date}.md");
+            string path = Path.Combine(_settings.ConductorRoot, "journal", $"{date}.md");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, $"# Journal {date}\n\n## Events\n{s.WizardData["E"]}\n\n## Decisions\n{s.WizardData["D"]}\n\n## Lessons\n{s.WizardData["L"]}");
             s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Journal saved. Analyzing...");
@@ -324,7 +348,7 @@ namespace NexusShell.Services
         }
 
         private void FinalizeMarketing(NeuralSession s) {
-            File.AppendAllText(Path.Combine(conductorRoot, "marketing_drafts.md"), $"\n- {DateTime.Now}: {s.WizardData["T"]} Hook: {s.WizardData["H"]}");
+            File.AppendAllText(Path.Combine(_settings.ConductorRoot, "marketing_drafts.md"), $"\n- {DateTime.Now}: {s.WizardData["T"]} Hook: {s.WizardData["H"]}");
             s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Draft logged. Generating social content...");
             SubmitTriggerPrompt(s, $"Generate 3 social posts for {s.WizardData["T"]} with hook {s.WizardData["H"]} using nexus-social-marketing skill.");
         }
@@ -354,27 +378,41 @@ namespace NexusShell.Services
             Task.Run(async () => {
                 try {
                     ProjectContext? ctx = null; lock(_dataLock) { ctx = _currentProjects.FirstOrDefault(x => x.Name == s.ProjectName)?.Context; }
-                    string res = await ExecuteCliPrompt(s, p, ctx);
-                    lock (s.Lock) { s.Turns.Add(new ConversationTurn { Role = "ai", Content = res }); s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]AI:[/] {MarkdownRenderer.ToSpectreMarkup(res)}"); }
-                    _historyScrollOffset = 0; List<ConversationTurn> save; lock(s.Lock) { save = s.Turns.ToList(); } chatPersistence.SaveHistory(s.ProjectPath, save);
+                    
+                    var sb = new StringBuilder(); 
+                    if (!string.IsNullOrEmpty(s.SystemPrompt)) sb.AppendLine(s.SystemPrompt); 
+                    else if (ctx != null) sb.AppendLine($"Project: {s.ProjectName} | Goal: {ctx.Objective}");
+                    
+                    List<ConversationTurn> turns; lock(s.Lock) { turns = s.Turns.SkipLast(1).TakeLast(5).ToList(); }
+                    if (turns.Any()) { sb.AppendLine("--- HISTORY ---"); foreach (var t in turns) sb.AppendLine($"{(t.Role == "user" ? "USER" : "AI")}: {t.Content}"); sb.AppendLine("--- PROMPT ---"); }
+                    sb.Append(p);
+
+                    string ts = DateTime.Now.ToString("HH:mm");
+                    string accumulatedResponse = "";
+                    int historyIndex = -1;
+
+                    lock (s.Lock) { 
+                        s.Turns.Add(new ConversationTurn { Role = "ai", Content = "" }); 
+                        s.History.Add($"[dim grey]{ts}[/] [bold green]AI:[/] ");
+                        historyIndex = s.History.Count - 1;
+                    }
+
+                    await foreach (var chunk in cliExecutionService.StreamPromptAsync(s.ProjectPath, sb.ToString(), s.ExtraArgs))
+                    {
+                        accumulatedResponse += chunk + "\n";
+                        lock (s.Lock)
+                        {
+                            s.Turns.Last().Content = accumulatedResponse.TrimEnd();
+                            s.History[historyIndex] = $"[dim grey]{ts}[/] [bold green]AI:[/] {MarkdownRenderer.ToSpectreMarkup(accumulatedResponse.TrimEnd())}";
+                        }
+                        _historyScrollOffset = 0;
+                        _needsRedraw = true;
+                    }
+
+                    List<ConversationTurn> save; lock(s.Lock) { save = s.Turns.ToList(); } chatPersistence.SaveHistory(s.ProjectPath, save);
                 } catch (Exception ex) { lock(s.Lock) { s.History.Add($"[red]Error:[/] {Markup.Escape(ex.Message)}"); } }
                 finally { s.IsProcessing = false; _needsRedraw = true; }
             });
-        }
-
-        private async Task<string> ExecuteCliPrompt(NeuralSession s, string p, ProjectContext? ctx) {
-            var sb = new StringBuilder(); if (!string.IsNullOrEmpty(s.SystemPrompt)) sb.AppendLine(s.SystemPrompt); else if (ctx != null) sb.AppendLine($"Project: {s.ProjectName} | Goal: {ctx.Objective}");
-            List<ConversationTurn> turns; lock(s.Lock) { turns = s.Turns.SkipLast(1).TakeLast(5).ToList(); }
-            if (turns.Any()) { sb.AppendLine("--- HISTORY ---"); foreach (var t in turns) sb.AppendLine($"{(t.Role == "user" ? "USER" : "AI")}: {t.Content}"); sb.AppendLine("--- PROMPT ---"); }
-            sb.Append(p); return await ExecuteHeadlessPrompt(s.ProjectPath, sb.ToString(), s.ExtraArgs);
-        }
-
-        private async Task<string> ExecuteHeadlessPrompt(string path, string p, string a) {
-            var psi = new ProcessStartInfo("powershell.exe") { Arguments = $"-NoProfile -Command \"cd '{path}'; gemini -o text {a}\"", RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8 };
-            using var proc = Process.Start(psi); if (proc == null) return "Failed.";
-            using (var w = new StreamWriter(proc.StandardInput.BaseStream, new UTF8Encoding(false))) { await w.WriteAsync(p); await w.FlushAsync(); }
-            string o = await proc.StandardOutput.ReadToEndAsync(); await proc.WaitForExitAsync();
-            return string.Join("\n", o.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l) && !l.StartsWith("Loading") && !l.StartsWith("Server") && !l.Contains("supports")));
         }
 
         private void InitializeWorkspace(string name, string path, string extraArgs = "", string systemPromptOverride = "", string greeterQuestion = "", string triggerPrompt = "") {
@@ -388,9 +426,9 @@ namespace NexusShell.Services
         }
 
         private async Task FetchResumableSessionsAsync(NeuralSession s) {
-            var psi = new ProcessStartInfo("powershell.exe") { Arguments = $"-NoProfile -Command \"cd '{s.ProjectPath}'; gemini --list-sessions\"", RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8 };
-            try { using var p = Process.Start(psi); if (p == null) return; string o = await p.StandardOutput.ReadToEndAsync(); await p.WaitForExitAsync();
-                if (p.ExitCode == 0) lock(s.Lock) { s.ResumableSessions = o.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l) && char.IsDigit(l[0])).ToList(); }
+            try { 
+                string output = await cliExecutionService.ExecutePromptAsync(s.ProjectPath, "", "--list-sessions");
+                lock(s.Lock) { s.ResumableSessions = output.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l) && char.IsDigit(l[0])).ToList(); }
             } catch { }
         }
 
