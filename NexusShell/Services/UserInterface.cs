@@ -388,26 +388,11 @@ namespace NexusShell.Services
         }
 
         private void StartMarketingWizard() {
-            _isModal = true;
-            Console.Clear();
-            AnsiConsole.Write(layoutService.GetHeroHeader());
-            var choice = AnsiConsole.Prompt(new SelectionPrompt<string>()
-                .Title(" [yellow]MARKETING STRATEGY[/] ")
-                .AddChoices("Generate Social Post", "Compile Weekly Changelog", "Back"));
-            _isModal = false;
-
-            if (choice == "Generate Social Post")
-            {
-                InitializeWorkspace("MARKETING", _settings.ReposRoot);
-                var s = _neuralSessions["MARKETING"]; s.WizardStep = 1;
-                s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Strategist ready. Step 1: Target project?");
-            }
-            else if (choice == "Compile Weekly Changelog")
-            {
-                InitializeWorkspace("MARKETING", _settings.ReposRoot, triggerPrompt: "Read the journal entries from the past 7 days. Filter out personal reflections and extract only the shipped features and technical milestones. Generate a professional Markdown CHANGELOG.md draft and a 'Founder Update' newsletter.");
-            }
-            
-            _forceClear = true;
+            InitializeWorkspace("MARKETING", _settings.ReposRoot);
+            var s = _neuralSessions["MARKETING"]; s.WizardStep = 1;
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Marketing Strategist initialized.");
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] [white]Step 1: What would you like to do?[/]");
+            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] [white](1) Generate Social Post  (2) Compile Weekly Changelog[/]");
             _needsRedraw = true;
         }
 
@@ -426,8 +411,20 @@ namespace NexusShell.Services
                 else if (s.WizardStep == 2) { s.WizardData["D"] = i; s.WizardStep = 3; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Step 3: Lessons learned?"); }
                 else if (s.WizardStep == 3) { s.WizardData["L"] = i; s.WizardStep = 0; FinalizeJournal(s); }
             } else if (s.ProjectName == "MARKETING") {
-                if (s.WizardStep == 1) { s.WizardData["T"] = i; s.WizardStep = 2; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Step 2: Hook/Achievement?"); }
-                else if (s.WizardStep == 2) { s.WizardData["H"] = i; s.WizardStep = 0; FinalizeMarketing(s); }
+                if (s.WizardStep == 1) { 
+                    if (i.Contains("1")) {
+                        s.WizardStep = 2; 
+                        s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] [white]Step 2: Which project or feature should we promote today?[/]"); 
+                    } else if (i.Contains("2")) {
+                        s.WizardStep = 0;
+                        s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold green]WIZARD:[/] Initiating Weekly Changelog compilation...");
+                        SubmitTriggerPrompt(s, "Read the journal entries from the past 7 days. Filter out personal reflections and extract only the shipped features and technical milestones. Generate a professional Markdown CHANGELOG.md draft and a 'Founder Update' newsletter.");
+                    } else {
+                        s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] Please enter 1 or 2."); 
+                    }
+                }
+                else if (s.WizardStep == 2) { s.WizardData["T"] = i; s.WizardStep = 3; s.History.Add($"[dim grey]{ts}[/] [bold yellow]WIZARD:[/] [white]Step 3: What is the primary hook or technical achievement?[/]"); }
+                else if (s.WizardStep == 3) { s.WizardData["H"] = i; s.WizardStep = 0; FinalizeMarketing(s); }
             } else if (s.ProjectName == "SCAFFOLDER") {
                 if (s.WizardStep == 1) { 
                     s.WizardData["Name"] = i; s.WizardStep = 2; 
