@@ -207,7 +207,34 @@ namespace NexusShell.Services
             _flatMenu = newFlatMenu;
 
             var selected = GetSelectedProject(projects);
-            var briefing = selected != null ? layoutService.GetProjectBriefing(selected) : GetDefaultBriefingPanel();
+            IRenderable briefing;
+            
+            if (selected != null) {
+                briefing = layoutService.GetProjectBriefing(selected);
+            } else {
+                string s = _flatMenu[_selectedIndex];
+                string? key = s switch {
+                    _ when s.Contains("MARKETING") => "MARKETING",
+                    _ when s.Contains("JOURNAL") => "JOURNAL",
+                    _ when s.Contains("NEW PROJECT") => "SCAFFOLDER",
+                    _ when s.Contains("EVOLVE") => "NEXUS HUB",
+                    _ when s.Contains("META-WORKSPACE") => "UNIFIED ECOSYSTEM",
+                    _ => null
+                };
+                
+                if (key != null && _neuralSessions.TryGetValue(key, out var sess)) {
+                    var grid = new Grid().AddColumn(new GridColumn().NoWrap()).AddColumn(new GridColumn());
+                    grid.AddRow("[cyan]Status:[/]", sess.IsProcessing ? "[bold yellow]Processing...[/]" : "[green]Idle[/]");
+                    
+                    // Simple text extraction for last context
+                    string lastLine = sess.History.LastOrDefault() ?? "No history.";
+                    grid.AddRow("[cyan]Last Context:[/]", lastLine);
+                    
+                    briefing = new Panel(grid).Header($"[bold cyan] {key} INTELLIGENCE [/]").BorderColor(Color.Cyan1).Expand();
+                } else {
+                    briefing = GetDefaultBriefingPanel();
+                }
+            }
 
             var layout = new Table().Border(TableBorder.None).HideHeaders().Expand();
             layout.AddColumn(new TableColumn("").Width(60).NoWrap());
@@ -220,12 +247,13 @@ namespace NexusShell.Services
         {
             if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
-            // Overhead increased to 30 to leave a safe margin at the bottom and prevent terminal scrolling.
-            int availableLines = Math.Max(5, Console.WindowHeight - 30);
+            // Overhead increased to 32 to completely remove scrollbar risks on all standard windows.
+            int availableLines = Math.Max(5, Console.WindowHeight - 32);
             List<string> history; List<string> sessions;
             lock (session.Lock) { history = new List<string>(session.History); sessions = new List<string>(session.ResumableSessions); }
 
-            var histGrid = new Grid().AddColumn();
+            // Using Table instead of Grid ensures 100% width expansion for the blue rectangle
+            var histGrid = new Table().Border(TableBorder.None).HideHeaders().Expand().AddColumn("");
             var displayedCount = 0;
 
             if (history.Count == 0 && sessions.Count > 0) {
@@ -292,15 +320,36 @@ namespace NexusShell.Services
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
                 if (key.Key == ConsoleKey.Escape) { _activeWorkspaceIndex = 0; _inputBuffer.Clear(); _needsRedraw = true; _forceClear = true; }
+                else if (key.Key == ConsoleKey.W && key.Modifiers.HasFlag(ConsoleModifiers.Control)) { CloseWorkspace(_activeWorkspaces[_activeWorkspaceIndex]); }
                 else if (key.Key == ConsoleKey.UpArrow) { _historyScrollOffset++; _needsRedraw = true; }
                 else if (key.Key == ConsoleKey.DownArrow) { _historyScrollOffset = Math.Max(0, _historyScrollOffset - 1); _needsRedraw = true; }
                 else if (key.Key == ConsoleKey.Enter) {
                     string p = _inputBuffer.ToString().Trim();
-                    if (!string.IsNullOrEmpty(p) && !session.IsProcessing) { if (session.WizardStep > 0) ProcessWizardStep(session, p); else SubmitUserPrompt(session, p); }
+                    if (p.Equals("/close", StringComparison.OrdinalIgnoreCase) || p.Equals("exit", StringComparison.OrdinalIgnoreCase)) {
+                        CloseWorkspace(_activeWorkspaces[_activeWorkspaceIndex]);
+                    }
+                    else if (!string.IsNullOrEmpty(p) && !session.IsProcessing) { 
+                        if (session.WizardStep > 0) ProcessWizardStep(session, p); else SubmitUserPrompt(session, p); 
+                    }
                     _inputBuffer.Clear(); _needsRedraw = true;
                 }
                 else if (key.Key == ConsoleKey.Backspace) { if (_inputBuffer.Length > 0) _inputBuffer.Remove(_inputBuffer.Length - 1, 1); _needsRedraw = true; }
                 else if (!char.IsControl(key.KeyChar)) { _inputBuffer.Append(key.KeyChar); _needsRedraw = true; }
+            }
+        }
+
+        private void CloseWorkspace(string name)
+        {
+            if (name == "⚡ HUB") return;
+            int idx = _activeWorkspaces.IndexOf(name);
+            if (idx > 0)
+            {
+                _activeWorkspaces.RemoveAt(idx);
+                _neuralSessions.Remove(name);
+                _activeWorkspaceIndex = Math.Max(0, idx - 1);
+                _inputBuffer.Clear();
+                _needsRedraw = true;
+                _forceClear = true;
             }
         }
 
@@ -375,7 +424,7 @@ namespace NexusShell.Services
             else if (selection.Contains("MARKETING")) StartMarketingWizard();
             else if (selection.Contains("JOURNAL")) StartJournalWizard();
             else if (selection.Contains("NEW PROJECT")) StartScaffolderWizard();
-            else if (selection.Contains("EVOLVE")) InitializeWorkspace("NEXUS HUB", Path.Combine(_settings.ConductorRoot, "NexusShell"), triggerPrompt: "Hub status.");
+            else if (selection.Contains("EVOLVE")) InitializeWorkspace("NEXUS HUB", Path.Combine(_settings.ReposRoot, "NexusShell"), triggerPrompt: "Hub status.");
             else if (selection.Contains("HELP")) ShowHelp();
             else if (selection.Contains("MAINTENANCE")) ShowMaintenance();
         }
