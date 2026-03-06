@@ -358,6 +358,7 @@ namespace NexusShell.Services
                     case ConsoleKey.D: TriggerDelegationForSelectedProject(); break;
                     case ConsoleKey.F: TriggerFocusModeForSelectedProject(); break;
                     case ConsoleKey.S: TriggerFleetSync(); break;
+                    case ConsoleKey.M: TriggerMorningStandup(); break;
                 }
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
@@ -466,6 +467,55 @@ namespace NexusShell.Services
             }
         }
 
+        private void TriggerMorningStandup()
+        {
+            _isModal = true;
+            Console.Clear();
+            AnsiConsole.Write(layoutService.GetHeroHeader());
+            AnsiConsole.MarkupLine("[bold yellow]Gathering cross-project intel for Morning Standup...[/]");
+            
+            var sb = new StringBuilder();
+            sb.AppendLine("Generate a 'Morning Standup' briefing for the founder. Here is the activity from the last 24 hours:\n");
+
+            // Get Journal
+            try {
+                var journalDir = Path.Combine(_settings.ConductorRoot, "journal");
+                if (Directory.Exists(journalDir)) {
+                    var latestJournal = Directory.GetFiles(journalDir, "*.md").OrderByDescending(f => f).FirstOrDefault();
+                    if (latestJournal != null) {
+                        sb.AppendLine($"--- LATEST JOURNAL ENTRY ({Path.GetFileName(latestJournal)}) ---");
+                        sb.AppendLine(File.ReadAllText(latestJournal));
+                    }
+                }
+            } catch { }
+
+            // Get Git Logs
+            sb.AppendLine("\n--- RECENT GIT COMMITS (Last 24h) ---");
+            foreach (var p in _currentProjects.Where(x => x.Type == "Mono" || x.Type == "Multi"))
+            {
+                try {
+                    var psi = new ProcessStartInfo("git", "log --since=\"24 hours ago\" --oneline")
+                    {
+                        WorkingDirectory = p.Path,
+                        RedirectStandardOutput = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using var proc = Process.Start(psi);
+                    string log = proc?.StandardOutput.ReadToEnd().Trim() ?? "";
+                    if (!string.IsNullOrWhiteSpace(log)) {
+                        sb.AppendLine($"Project: {p.Name}");
+                        sb.AppendLine(log);
+                    }
+                } catch { }
+            }
+
+            _isModal = false;
+            
+            string args = "--include-directories " + string.Join(" ", _currentProjects.Select(p => $".\\{p.Name}"));
+            InitializeWorkspace("UNIFIED ECOSYSTEM", _settings.ReposRoot, args, triggerPrompt: sb.ToString());
+        }
+
         private void TriggerFocusModeForSelectedProject()
         {
             var p = GetSelectedProject(_currentProjects);
@@ -479,8 +529,38 @@ namespace NexusShell.Services
                 
                 if (!string.IsNullOrWhiteSpace(task))
                 {
-                    string prompt = $"I am about to work on this task: '{task}'. Please analyze the repository structure and generate a list of glob patterns for folders/files that are completely irrelevant to this task. Output ONLY the glob patterns, one per line. I will write this to .geminiignore.";
-                    InitializeWorkspace(p.Name, p.Path, triggerPrompt: prompt);
+                    InitializeWorkspace(p.Name, p.Path);
+                    var session = _neuralSessions[p.Name];
+                    session.IsProcessing = true;
+                    
+                    Task.Run(async () => {
+                        try {
+                            string prompt = $"I am about to work on this task: '{task}'. Please analyze the repository structure and generate a list of glob patterns for folders/files that are completely irrelevant to this task. Output ONLY the raw glob patterns, one per line. Do not include markdown formatting or explanations.";
+                            string res = await cliExecutionService.ExecutePromptAsync(p.Path, prompt, "");
+                            
+                            var lines = res.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("`")).ToList();
+                            
+                            string ignorePath = Path.Combine(p.Path, ".geminiignore");
+                            string existing = File.Exists(ignorePath) ? File.ReadAllText(ignorePath) : "";
+                            
+                            var sb = new StringBuilder();
+                            sb.AppendLine(existing);
+                            sb.AppendLine($"\n# Auto-compacted for task: {task}");
+                            foreach(var l in lines) sb.AppendLine(l);
+                            
+                            File.WriteAllText(ignorePath, sb.ToString());
+                            
+                            string ts = DateTime.Now.ToString("HH:mm");
+                            lock (session.Lock) {
+                                session.History.Add($"[dim grey]{ts}[/] [bold yellow]SYSTEM:[/] Context compacted. Appended {lines.Count} ignore patterns to .geminiignore.");
+                            }
+                        } catch (Exception ex) {
+                            lock(session.Lock) { session.History.Add($"[red]Error:[/] {Markup.Escape(ex.Message)}"); }
+                        } finally {
+                            session.IsProcessing = false;
+                            _needsRedraw = true;
+                        }
+                    });
                 }
                 else
                 {
@@ -641,7 +721,7 @@ namespace NexusShell.Services
 
         private void ShowHelp() {
             _isModal = true; Console.Clear(); AnsiConsole.Write(layoutService.GetHeroHeader());
-            AnsiConsole.Write(new Panel(new Markup("[bold cyan]HELP & HOTKEYS[/]\n\n• [yellow]Arrows[/]: Navigate Hub / Scroll History\n• [yellow]Tab / F1-F12[/]: Switch Workspaces\n• [yellow]Esc[/]: Return to Hub\n• [yellow]Enter[/]: Launch / Send Prompt\n• [yellow]C[/]: Auto-Commit selected project\n• [yellow]D[/]: Delegate task (Swarm)\n• [yellow]F[/]: Focus Mode (Compact Context)")).Expand());
+            AnsiConsole.Write(new Panel(new Markup("[bold cyan]HELP & HOTKEYS[/]\n\n• [yellow]Arrows[/]: Navigate Hub / Scroll History\n• [yellow]Tab / F1-F12[/]: Switch Workspaces\n• [yellow]Esc[/]: Return to Hub\n• [yellow]Enter[/]: Launch / Send Prompt\n• [yellow]C[/]: Auto-Commit selected project\n• [yellow]D[/]: Delegate task (Swarm)\n• [yellow]F[/]: Focus Mode (Compact Context)\n• [yellow]S[/]: Sync Fleet/Project (Git Pull/Push)\n• [yellow]M[/]: Morning Standup (Intel Briefing)")).Expand());
             Console.ReadKey(); _isModal = false; _forceClear = true; _needsRedraw = true;
         }
 
