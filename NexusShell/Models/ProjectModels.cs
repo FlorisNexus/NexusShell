@@ -205,5 +205,15 @@ namespace NexusShell.Models
         /// Gets or sets the last opened time from persistent stats.
         /// </summary>
         public DateTime? LastOpened { get; set; }
+
+        /// <summary>
+        /// Gets or sets the test status (e.g. "Pass", "Fail", "None").
+        /// </summary>
+        public string TestStatus { get; set; } = "None";
+
+        /// <summary>
+        /// Gets or sets the test coverage percentage.
+        /// </summary>
+        public string Coverage { get; set; } = "";
     }
 }

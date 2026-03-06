@@ -281,6 +281,8 @@ namespace NexusShell.Services
                     case ConsoleKey.DownArrow: _selectedIndex = (_selectedIndex + 1) % _flatMenu.Count; _needsRedraw = true; break;
                     case ConsoleKey.Enter: ExecuteSelection(); _needsRedraw = true; break;
                     case ConsoleKey.C: TriggerCommitForSelectedProject(); break;
+                    case ConsoleKey.D: TriggerDelegationForSelectedProject(); break;
+                    case ConsoleKey.F: TriggerFocusModeForSelectedProject(); break;
                 }
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
@@ -303,6 +305,53 @@ namespace NexusShell.Services
             if (p != null && p.HasChanges)
             {
                 InitializeWorkspace(p.Name, p.Path, triggerPrompt: "Run git status. Then, based on the changes, generate a concise, atomic git commit message and execute 'git commit -m \"<message>\"'.");
+            }
+        }
+
+        private void TriggerDelegationForSelectedProject()
+        {
+            var p = GetSelectedProject(_currentProjects);
+            if (p != null)
+            {
+                _isModal = true;
+                Console.Clear();
+                AnsiConsole.Write(layoutService.GetHeroHeader());
+                string goal = AnsiConsole.Ask<string>($"[bold cyan]Delegate task for {p.Name}:[/]");
+                _isModal = false;
+                
+                if (!string.IsNullOrWhiteSpace(goal))
+                {
+                    InitializeWorkspace(p.Name, p.Path, extraArgs: "--skill nexus-subagent-orchestrator", triggerPrompt: $"Execute this delegated task: {goal}");
+                }
+                else
+                {
+                    _forceClear = true;
+                    _needsRedraw = true;
+                }
+            }
+        }
+
+        private void TriggerFocusModeForSelectedProject()
+        {
+            var p = GetSelectedProject(_currentProjects);
+            if (p != null)
+            {
+                _isModal = true;
+                Console.Clear();
+                AnsiConsole.Write(layoutService.GetHeroHeader());
+                string task = AnsiConsole.Ask<string>($"[bold cyan]What is the current task for {p.Name}? (I will compact context):[/]");
+                _isModal = false;
+                
+                if (!string.IsNullOrWhiteSpace(task))
+                {
+                    string prompt = $"I am about to work on this task: '{task}'. Please analyze the repository structure and generate a list of glob patterns for folders/files that are completely irrelevant to this task. Output ONLY the glob patterns, one per line. I will write this to .geminiignore.";
+                    InitializeWorkspace(p.Name, p.Path, triggerPrompt: prompt);
+                }
+                else
+                {
+                    _forceClear = true;
+                    _needsRedraw = true;
+                }
             }
         }
 
@@ -334,9 +383,26 @@ namespace NexusShell.Services
         }
 
         private void StartMarketingWizard() {
-            InitializeWorkspace("MARKETING", _settings.ReposRoot);
-            var s = _neuralSessions["MARKETING"]; s.WizardStep = 1;
-            s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Strategist ready. Step 1: Target project?");
+            _isModal = true;
+            Console.Clear();
+            AnsiConsole.Write(layoutService.GetHeroHeader());
+            var choice = AnsiConsole.Prompt(new SelectionPrompt<string>()
+                .Title(" [yellow]MARKETING STRATEGY[/] ")
+                .AddChoices("Generate Social Post", "Compile Weekly Changelog", "Back"));
+            _isModal = false;
+
+            if (choice == "Generate Social Post")
+            {
+                InitializeWorkspace("MARKETING", _settings.ReposRoot);
+                var s = _neuralSessions["MARKETING"]; s.WizardStep = 1;
+                s.History.Add($"[dim grey]{DateTime.Now:HH:mm}[/] [bold yellow]WIZARD:[/] Strategist ready. Step 1: Target project?");
+            }
+            else if (choice == "Compile Weekly Changelog")
+            {
+                InitializeWorkspace("MARKETING", _settings.ReposRoot, triggerPrompt: "Read the journal entries from the past 7 days. Filter out personal reflections and extract only the shipped features and technical milestones. Generate a professional Markdown CHANGELOG.md draft and a 'Founder Update' newsletter.");
+            }
+            
+            _forceClear = true;
             _needsRedraw = true;
         }
 
@@ -443,7 +509,7 @@ namespace NexusShell.Services
 
         private void ShowHelp() {
             _isModal = true; Console.Clear(); AnsiConsole.Write(layoutService.GetHeroHeader());
-            AnsiConsole.Write(new Panel(new Markup("[bold cyan]HELP[/]\n\n• Arrows: Nav\n• Tab/F1-F12: Switch\n• Esc: Hub\n• CLI Logic")).Expand());
+            AnsiConsole.Write(new Panel(new Markup("[bold cyan]HELP & HOTKEYS[/]\n\n• [yellow]Arrows[/]: Navigate Hub / Scroll History\n• [yellow]Tab / F1-F12[/]: Switch Workspaces\n• [yellow]Esc[/]: Return to Hub\n• [yellow]Enter[/]: Launch / Send Prompt\n• [yellow]C[/]: Auto-Commit selected project\n• [yellow]D[/]: Delegate task (Swarm)\n• [yellow]F[/]: Focus Mode (Compact Context)")).Expand());
             Console.ReadKey(); _isModal = false; _forceClear = true; _needsRedraw = true;
         }
 
@@ -515,8 +581,15 @@ namespace NexusShell.Services
         private IRenderable GetDefaultBriefingPanel() => new Panel("[dim grey]Select a project to view its intelligence context.[/]").Header("[bold grey] BRIEFING [/]").Expand();
         private string GetMenuItemMarkup(string l, int i) => i == _selectedIndex ? $"  [bold cyan]>[/] [cyan invert]{l}[/]" : $"    [cyan]{l}[/]";
         private ProjectInfo? GetSelectedProject(List<ProjectInfo> p) { string s = _flatMenu[_selectedIndex]; return s.StartsWith("PROJ:") ? p.FirstOrDefault(x => x.Name == s.Substring(5)) : null; }
-        private string GetProjectDisplayName(ProjectInfo p) { string act = _neuralSessions.TryGetValue(p.Name, out var s) && s.IsProcessing ? " [bold yellow]●[/]" : _activeWorkspaces.Contains(p.Name) ? " [bold green]●[/]" : "";
-            return $"{(p.Type=="Mono"?"🐙":"📁")} {p.Name.PadRight(18)} [grey][[{p.Branch}]][/]{(p.HasChanges?" [yellow]![/]":"")}{act}";
+        private string GetProjectDisplayName(ProjectInfo p) {
+            string act = _neuralSessions.TryGetValue(p.Name, out var s) && s.IsProcessing ? " [bold yellow]●[/]" : _activeWorkspaces.Contains(p.Name) ? " [bold green]●[/]" : "";
+            
+            string health = "";
+            if (p.TestStatus == "Pass") health += " [green]✓[/]";
+            else if (p.TestStatus == "Fail") health += " [red]✗[/]";
+            if (!string.IsNullOrEmpty(p.Coverage)) health += $" [grey]({p.Coverage})[/]";
+
+            return $"{(p.Type=="Mono"?"🐙":"📁")} {p.Name.PadRight(18)} [grey][[{p.Branch}]][/]{(p.HasChanges?" [yellow]![/]":"")}{health}{act}";
         }
         private void AddGroupToGrid(Grid g, string h, List<ProjectInfo> p, int s) {
             if (!p.Any()) return; g.AddRow($"\n  [bold white]{h}[/]");

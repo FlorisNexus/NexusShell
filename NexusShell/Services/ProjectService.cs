@@ -72,6 +72,8 @@ namespace NexusShell.Services
                 info.Type = "Folder";
             }
 
+            GetHealthInfo(path, info);
+
             // 2. Determine Strategic Track
             // Priority 1: Check for LOCAL markers (Vite/React/Tailwind)
             // We check this first because SaaS projects might also have a 'src' folder
@@ -99,6 +101,37 @@ namespace NexusShell.Services
         public void RefreshTracks()
         {
             // Logic handled by PowerShell sync-tracks for now
+        }
+
+        private void GetHealthInfo(string path, ProjectInfo info)
+        {
+            try {
+                var testResultsDir = Path.Combine(path, "TestResults");
+                if (Directory.Exists(testResultsDir))
+                {
+                    var trxFiles = Directory.GetFiles(testResultsDir, "*.trx", SearchOption.AllDirectories);
+                    if (trxFiles.Any())
+                    {
+                        var latestTrx = trxFiles.OrderByDescending(File.GetLastWriteTime).First();
+                        string trxContent = File.ReadAllText(latestTrx);
+                        if (trxContent.Contains("outcome=\"Failed\"")) info.TestStatus = "Fail";
+                        else if (trxContent.Contains("outcome=\"Passed\"")) info.TestStatus = "Pass";
+                    }
+                }
+                
+                var coverageFiles = Directory.GetFiles(path, "coverage.opencover.xml", SearchOption.AllDirectories);
+                if (coverageFiles.Any())
+                {
+                    var latestCov = coverageFiles.OrderByDescending(File.GetLastWriteTime).First();
+                    // Basic parsing for sequence coverage
+                    string content = File.ReadAllText(latestCov);
+                    var match = System.Text.RegularExpressions.Regex.Match(content, @"sequenceCoverage=""([\d.]+)""");
+                    if (match.Success && decimal.TryParse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, out decimal cov))
+                    {
+                        info.Coverage = $"{Math.Round(cov, 1)}%";
+                    }
+                }
+            } catch { /* Ignore health parsing errors */ }
         }
 
         private void GetGitInfo(string path, ProjectInfo info)
