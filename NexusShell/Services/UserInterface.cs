@@ -247,34 +247,34 @@ namespace NexusShell.Services
         {
             if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
-            // Overhead: Header(6) + Tabs(5) + Brief(4) + Rule(1) + TurnStats(1) + HistBorders(2) + Input(4) + Footer(2) = 25
-            // Extra margin: +7 to be completely safe against scrollbar popping when texts wrap wildly
-            int availableLines = Math.Max(5, Console.WindowHeight - 32);
+            // We let Spectre.Console handle the clipping.
+            int panelHeight = Math.Max(5, Console.WindowHeight - 20); // Header(6) + Tabs(4) + Brief(3) + Input(4) + Footer(3)
+            
             List<string> history; List<string> sessions;
             lock (session.Lock) { history = new List<string>(session.History); sessions = new List<string>(session.ResumableSessions); }
 
-            // Using Table instead of Grid ensures 100% width expansion for the blue rectangle
             var histGrid = new Table().Border(TableBorder.None).HideHeaders().Expand().AddColumn("");
-            var displayedCount = 0;
-
+            
             if (history.Count == 0 && sessions.Count > 0) {
                 histGrid.AddRow("[bold yellow]RECURRING NEURAL PATHS (RESUMABLE SESSIONS):[/]");
                 histGrid.AddRow("[dim grey]Use 'gemini -r [[index]]' or 'gemini -r latest' to resume in CLI.[/]");
                 histGrid.AddRow("");
-                var take = Math.Min(sessions.Count, availableLines - 4);
-                foreach (var s in sessions.Take(take)) histGrid.AddRow($"  [cyan]{Markup.Escape(s)}[/]");
-                displayedCount = take + 3;
+                foreach (var s in sessions.Take(20)) histGrid.AddRow($"  [cyan]{Markup.Escape(s)}[/]");
             } else {
-                int skip = Math.Max(0, history.Count - availableLines - _historyScrollOffset);
-                int take = Math.Min(availableLines, history.Count - skip);
-                if (skip > 0) histGrid.AddRow($"[dim grey]  ↑ {skip} more lines above (Arrows to scroll)[/]"); else histGrid.AddRow("");
-                var batch = history.Skip(skip).Take(take).ToList();
+                int skip = Math.Max(0, history.Count - panelHeight - _historyScrollOffset + 5);
+                if (skip > 0) histGrid.AddRow($"[dim grey]  ↑ {skip} more lines above (Arrows to scroll)[/]");
+                var batch = history.Skip(skip).ToList();
                 foreach (var line in batch) histGrid.AddRow(line);
-                displayedCount = batch.Count + 1;
             }
 
-            for (int i = 0; i < (availableLines - displayedCount); i++) histGrid.AddRow("");
-            if (_historyScrollOffset > 0) histGrid.AddRow($"[dim grey]  ↓ {_historyScrollOffset} lines below[/]"); else histGrid.AddRow("");
+            if (_historyScrollOffset > 0) histGrid.AddRow($"[dim grey]  ↓ {_historyScrollOffset} lines below[/]");
+
+            var histPanel = new Panel(histGrid)
+            {
+                Header = new PanelHeader("[bold blue] NEURAL LINK HISTORY [/]"),
+                Border = BoxBorder.Rounded,
+                Height = panelHeight
+            }.Expand().BorderColor(Color.Blue1);
 
             var inputGrid = new Grid().AddColumn();
             if (session.IsProcessing) {
@@ -297,7 +297,7 @@ namespace NexusShell.Services
 
             var container = new Table().Border(TableBorder.None).HideHeaders().Expand();
             container.AddColumn("");
-            container.AddRow(new Panel(histGrid).Header("[bold blue] NEURAL LINK HISTORY [/]").BorderColor(Color.Blue1).Expand());
+            container.AddRow(histPanel);
             container.AddRow(inputGrid);
             return container;
         }
