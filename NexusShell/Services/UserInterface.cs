@@ -655,11 +655,26 @@ namespace NexusShell.Services
         private void ExecutePromptInBackground(NeuralSession s, string p) {
             Task.Run(async () => {
                 try {
-                    ProjectContext? ctx = null; lock(_dataLock) { ctx = _currentProjects.FirstOrDefault(x => x.Name == s.ProjectName)?.Context; }
+                    ProjectInfo? projInfo = null; lock(_dataLock) { projInfo = _currentProjects.FirstOrDefault(x => x.Name == s.ProjectName); }
+                    ProjectContext? ctx = projInfo?.Context;
                     
                     var sb = new StringBuilder(); 
                     if (!string.IsNullOrEmpty(s.SystemPrompt)) sb.AppendLine(s.SystemPrompt); 
-                    else if (ctx != null) sb.AppendLine($"Project: {s.ProjectName} | Goal: {ctx.Objective}");
+                    else if (ctx != null) 
+                    {
+                        sb.AppendLine($"Project: {s.ProjectName} | Goal: {ctx.Objective}");
+                        string geminiMdPath = Path.Combine(s.ProjectPath, "GEMINI.md");
+                        if (File.Exists(geminiMdPath)) {
+                            sb.AppendLine("--- GEMINI.md CONTEXT ---");
+                            try { sb.AppendLine(File.ReadAllText(geminiMdPath)); } catch {}
+                            sb.AppendLine("-------------------------");
+                        }
+                        if (projInfo != null && projInfo.HasChanges && !string.IsNullOrEmpty(projInfo.Diff)) {
+                            sb.AppendLine("--- UNCOMMITTED CHANGES (GIT DIFF) ---");
+                            sb.AppendLine(projInfo.Diff.Length > 3000 ? projInfo.Diff.Substring(0, 3000) + "\n...[diff truncated]" : projInfo.Diff);
+                            sb.AppendLine("--------------------------------------");
+                        }
+                    }
                     
                     List<ConversationTurn> turns; lock(s.Lock) { turns = s.Turns.SkipLast(1).TakeLast(5).ToList(); }
                     if (turns.Any()) { sb.AppendLine("--- HISTORY ---"); foreach (var t in turns) sb.AppendLine($"{(t.Role == "user" ? "USER" : "AI")}: {t.Content}"); sb.AppendLine("--- PROMPT ---"); }
