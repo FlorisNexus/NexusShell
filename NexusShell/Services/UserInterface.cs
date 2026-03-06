@@ -47,39 +47,54 @@ namespace NexusShell.Services
 
             Task.Run(BackgroundDataLoop);
 
-            while (true)
-            {
-                try {
-                    if (_isModal) { Thread.Sleep(50); continue; }
-
-                    if (!_needsRedraw && _activeWorkspaceIndex > 0)
+            // Use Spectre's Live display to prevent ALL flickering, scrolling, and ghosting.
+            AnsiConsole.Live(new Markup("Initializing Neural Kernel..."))
+                .Cropping(VerticalOverflowCropping.Bottom)
+                .Start(ctx =>
+                {
+                    while (true)
                     {
-                        var workspaceName = _activeWorkspaces[_activeWorkspaceIndex];
-                        if (_neuralSessions.TryGetValue(workspaceName, out var s) && s.IsProcessing)
+                        try
                         {
+                            if (_isModal) { Thread.Sleep(50); continue; }
+
+                            // Animation Redraw (10fps for processing tabs)
+                            if (!_needsRedraw && _activeWorkspaceIndex > 0)
+                            {
+                                var workspaceName = _activeWorkspaces[_activeWorkspaceIndex];
+                                if (_neuralSessions.TryGetValue(workspaceName, out var s) && s.IsProcessing)
+                                {
+                                    _needsRedraw = true;
+                                    Thread.Sleep(100); 
+                                }
+                            }
+
+                            if (_needsRedraw)
+                            {
+                                ctx.UpdateTarget(BuildDashboard());
+                                ctx.Refresh();
+                                _needsRedraw = false;
+                            }
+
+                            if (Console.KeyAvailable)
+                            {
+                                var key = Console.ReadKey(true);
+                                HandleInput(key);
+                            }
+                            else { Thread.Sleep(10); }
+                        }
+                        catch (Exception ex)
+                        {
+                            _isModal = true;
+                            Console.Clear();
+                            AnsiConsole.WriteException(ex);
+                            Console.WriteLine("\nSystem Error. Rebooting UI in 3s...");
+                            Thread.Sleep(3000);
+                            _isModal = false;
                             _needsRedraw = true;
-                            Thread.Sleep(100); 
                         }
                     }
-
-                    if (_needsRedraw)
-                    {
-                        if (_forceClear) { Console.Clear(); _forceClear = false; }
-                        RenderDashboard();
-                        _needsRedraw = false;
-                    }
-
-                    if (Console.KeyAvailable)
-                    {
-                        var key = Console.ReadKey(true);
-                        HandleInput(key);
-                    }
-                    else { Thread.Sleep(10); }
-                } catch {
-                    _forceClear = true;
-                    _needsRedraw = true;
-                }
-            }
+                });
         }
 
         private async Task BackgroundDataLoop()
@@ -99,7 +114,7 @@ namespace NexusShell.Services
             }
         }
 
-        private void RenderDashboard()
+        private IRenderable BuildDashboard()
         {
             List<ProjectInfo> projectsCopy;
             List<HistoryEvent> eventsCopy;
@@ -149,12 +164,11 @@ namespace NexusShell.Services
                 masterTable.AddRow(GetFleetViewPanel(projectsCopy));
             }
 
-            // 5. Global Footer
+            // 5. Global Footer (Static)
             masterTable.AddRow(new Rule().RuleStyle("cyan dim"));
             masterTable.AddRow(new Markup($" [dim grey]Arrows: Navigate | Enter: Launch | Tab: Switch | F1-F12: Fast Jump | [bold cyan]{_settings.Version} CLI-Powered Neural OS[/][/]"));
 
-            Console.SetCursorPosition(0, 0);
-            AnsiConsole.Write(masterTable);
+            return masterTable;
         }
 
         private IRenderable GetFleetViewPanel(List<ProjectInfo> projects)
