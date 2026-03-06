@@ -220,5 +220,10 @@ namespace NexusShell.Models
         /// Gets or sets the test coverage percentage.
         /// </summary>
         public string Coverage { get; set; } = "";
+
+        /// <summary>
+        /// Gets or sets the current git diff output.
+        /// </summary>
+        public string Diff { get; set; } = "";
     }
 }

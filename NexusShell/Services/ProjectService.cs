@@ -139,6 +139,10 @@ namespace NexusShell.Services
             try {
                 info.Branch = RunGit(path, "rev-parse --abbrev-ref HEAD");
                 info.HasChanges = !string.IsNullOrEmpty(RunGit(path, "status --short"));
+                if (info.HasChanges)
+                {
+                    info.Diff = RunGit(path, "diff");
+                }
 
                 string upstream = RunGit(path, "rev-parse --abbrev-ref --symbolic-full-name @{u}");
                 if (!string.IsNullOrEmpty(upstream))
@@ -161,6 +165,19 @@ namespace NexusShell.Services
                     }
                 }
             } catch {}
+        }
+
+        public string GetProjectDiff(string path)
+        {
+            if (!Directory.Exists(Path.Combine(path, ".git"))) return string.Empty;
+            return RunGit(path, "diff --color=always");
+        }
+
+        public void SyncProject(string path)
+        {
+            if (!Directory.Exists(Path.Combine(path, ".git"))) return;
+            RunGit(path, "pull --rebase");
+            RunGit(path, "push");
         }
 
         private string RunGit(string path, string args)

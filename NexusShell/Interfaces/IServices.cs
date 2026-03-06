@@ -66,6 +66,16 @@ namespace NexusShell.Interfaces
         /// Refreshes the local track registry (git status, etc.).
         /// </summary>
         void RefreshTracks();
+
+        /// <summary>
+        /// Gets the current git diff for a project.
+        /// </summary>
+        string GetProjectDiff(string path);
+
+        /// <summary>
+        /// Performs a git pull --rebase and git push for a project.
+        /// </summary>
+        void SyncProject(string path);
     }
 
     /// <summary>

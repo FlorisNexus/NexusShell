@@ -144,7 +144,7 @@ namespace NexusShell.Services
                 }
                 else masterTable.AddRow(new Rule().RuleStyle("grey dim"));
 
-                masterTable.AddRow(GetWorkspaceHistoryContent(workspaceName));
+                masterTable.AddRow(GetWorkspaceHistoryContent(workspaceName, project));
             }
             else
             {
@@ -243,7 +243,7 @@ namespace NexusShell.Services
             return layout;
         }
 
-        private IRenderable GetWorkspaceHistoryContent(string workspaceName)
+        private IRenderable GetWorkspaceHistoryContent(string workspaceName, ProjectInfo? project)
         {
             if (!_neuralSessions.TryGetValue(workspaceName, out var session)) return new Markup("[red]Session sync error.[/]");
 
@@ -276,6 +276,35 @@ namespace NexusShell.Services
                 Height = panelHeight
             }.Expand().BorderColor(Color.Blue1);
 
+            IRenderable mainContent = histPanel;
+
+            if (project != null && project.HasChanges && !string.IsNullOrEmpty(project.Diff))
+            {
+                var diffGrid = new Table().Border(TableBorder.None).HideHeaders().Expand().AddColumn("");
+                var diffLines = project.Diff.Split('\n').Take(panelHeight - 2).ToList();
+                foreach (var line in diffLines)
+                {
+                    string safeLine = Markup.Escape(line);
+                    if (line.StartsWith("+")) safeLine = $"[green]{safeLine}[/]";
+                    else if (line.StartsWith("-")) safeLine = $"[red]{safeLine}[/]";
+                    else if (line.StartsWith("@@")) safeLine = $"[cyan]{safeLine}[/]";
+                    diffGrid.AddRow(safeLine);
+                }
+
+                var diffPanel = new Panel(diffGrid)
+                {
+                    Header = new PanelHeader("[bold yellow] ACTIVE DIFFERENTIAL [/]"),
+                    Border = BoxBorder.Rounded,
+                    Height = panelHeight
+                }.Expand().BorderColor(Color.Yellow);
+
+                var splitLayout = new Table().Border(TableBorder.None).HideHeaders().Expand();
+                splitLayout.AddColumn(new TableColumn("").Width(Console.WindowWidth * 60 / 100)); // 60%
+                splitLayout.AddColumn(new TableColumn("").Width(Console.WindowWidth * 40 / 100)); // 40%
+                splitLayout.AddRow(histPanel, diffPanel);
+                mainContent = splitLayout;
+            }
+
             var inputGrid = new Grid().AddColumn();
             if (session.IsProcessing) {
                 string[] frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
@@ -292,12 +321,12 @@ namespace NexusShell.Services
                 }
 
                 inputGrid.AddRow($"\n{promptPrefix} {session.InputBuffer}[blink white]_ [/]");
-                inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch | Ctrl+W: Close | /clear: Empty History)[/]");
+                inputGrid.AddRow("[grey]  (Esc: Hub | F1-F12: Switch | Ctrl+W: Close | /clear: Empty History | S: Sync)[/]");
             }
 
             var container = new Table().Border(TableBorder.None).HideHeaders().Expand();
             container.AddColumn("");
-            container.AddRow(histPanel);
+            container.AddRow(mainContent);
             container.AddRow(inputGrid);
             return container;
         }
@@ -319,6 +348,7 @@ namespace NexusShell.Services
                     case ConsoleKey.C: TriggerCommitForSelectedProject(); break;
                     case ConsoleKey.D: TriggerDelegationForSelectedProject(); break;
                     case ConsoleKey.F: TriggerFocusModeForSelectedProject(); break;
+                    case ConsoleKey.S: TriggerFleetSync(); break;
                 }
             } else {
                 var session = _neuralSessions[_activeWorkspaces[_activeWorkspaceIndex]];
@@ -362,6 +392,37 @@ namespace NexusShell.Services
                 _needsRedraw = true;
                 _forceClear = true;
             }
+        }
+
+        private void TriggerFleetSync()
+        {
+            var p = GetSelectedProject(_currentProjects);
+            _isModal = true;
+            Console.Clear();
+            AnsiConsole.Write(layoutService.GetHeroHeader());
+
+            if (p != null)
+            {
+                AnsiConsole.MarkupLine($"[bold yellow]Syncing {p.Name}...[/]");
+                projectService.SyncProject(p.Path);
+                AnsiConsole.MarkupLine($"[bold green]✅ {p.Name} synced.[/]");
+            }
+            else if (_flatMenu[_selectedIndex].Contains("META-WORKSPACE"))
+            {
+                AnsiConsole.MarkupLine("[bold yellow]Initiating Fleet Sync...[/]");
+                var syncableProjects = _currentProjects.Where(x => x.Type == "Mono" || x.Type == "Multi").ToList();
+                foreach (var proj in syncableProjects)
+                {
+                    AnsiConsole.MarkupLine($"[grey]Syncing {proj.Name}...[/]");
+                    projectService.SyncProject(proj.Path);
+                }
+                AnsiConsole.MarkupLine("[bold green]✅ Fleet synchronization complete.[/]");
+            }
+
+            Thread.Sleep(1500);
+            _isModal = false;
+            _forceClear = true;
+            _needsRedraw = true;
         }
 
         private void TriggerCommitForSelectedProject()
