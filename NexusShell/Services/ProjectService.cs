@@ -170,7 +170,7 @@ namespace NexusShell.Services
         public string GetProjectDiff(string path)
         {
             if (!Directory.Exists(Path.Combine(path, ".git"))) return string.Empty;
-            return RunGit(path, "diff --color=always");
+            return RunGit(path, "diff");
         }
 
         public void SyncProject(string path)

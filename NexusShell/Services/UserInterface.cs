@@ -299,8 +299,8 @@ namespace NexusShell.Services
                 }.Expand().BorderColor(Color.Yellow);
 
                 var splitLayout = new Table().Border(TableBorder.None).HideHeaders().Expand();
-                splitLayout.AddColumn(new TableColumn("").Width(Console.WindowWidth * 60 / 100)); // 60%
-                splitLayout.AddColumn(new TableColumn("").Width(Console.WindowWidth * 40 / 100)); // 40%
+                splitLayout.AddColumn(new TableColumn("")); 
+                splitLayout.AddColumn(new TableColumn("")); 
                 splitLayout.AddRow(histPanel, diffPanel);
                 mainContent = splitLayout;
             }
