@@ -10,9 +10,9 @@ Note: NexusShell version must stay in sync with `APP_VERSION` in `Program.cs` an
 
 ## [Unreleased]
 
-_Changes pending release go here._
-
 ### Added
+- Project metadata: `GEMINI.md`, `CLAUDE.md`, `CHANGELOG.md`.
+
 ### Changed
 ### Fixed
 ### Removed
