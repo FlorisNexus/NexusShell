@@ -195,4 +195,19 @@ namespace NexusShell.Interfaces
         /// </summary>
         void SaveHistory(string projectPath, List<ConversationTurn> turns);
     }
+
+    /// <summary>
+    /// Service for scaffolding conductor plan and Gemini prompt pairs.
+    /// </summary>
+    public interface IPlanService
+    {
+        /// <summary>
+        /// Creates a plan .md file and a matching Gemini prompt .md file in
+        /// <c>conductor/plans/[project]/</c> and appends a pending entry to NEXT.md.
+        /// </summary>
+        /// <param name="project">Lower-case project slug (e.g. "continuum").</param>
+        /// <param name="slug">Short kebab-case description (e.g. "rate-limiting").</param>
+        /// <returns>Tuple of (planPath, promptPath) for the created files.</returns>
+        (string planPath, string promptPath) CreatePlanPair(string project, string slug);
+    }
 }

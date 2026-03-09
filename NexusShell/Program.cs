@@ -23,7 +23,7 @@ namespace NexusShell
     /// </summary>
     public class Program
     {
-        private const string APP_VERSION = "v18.0";
+        private const string APP_VERSION = "v19.0";
 
         /// <summary>
         /// Bootstraps the application, configures DI, and starts the UI.
@@ -43,7 +43,7 @@ namespace NexusShell
         {
             string baseDir = AppContext.BaseDirectory;
             string configPath = Path.Combine(baseDir, "appsettings.json");
-            
+
             if (!File.Exists(configPath)) {
                 configPath = @"C:\Users\flori\source\repos\NexusShell\NexusShell\appsettings.json";
             }
@@ -73,10 +73,14 @@ namespace NexusShell
                     services.AddSingleton<ISessionOrchestrator, SessionOrchestrator>();
                     services.AddSingleton<IHistoryService>(sp => new HistoryService(sp.GetRequiredService<NexusSettings>().ConductorRoot));
                     services.AddSingleton<IProjectService>(sp => new ProjectService(
-                        sp.GetRequiredService<NexusSettings>().ReposRoot, 
+                        sp.GetRequiredService<NexusSettings>().ReposRoot,
                         sp.GetRequiredService<IHistoryService>(),
                         sp.GetRequiredService<IContextService>()));
                     services.AddSingleton<IChatPersistenceService, ChatPersistenceService>();
+                    
+                    services.AddSingleton<IPlanService>(sp => new PlanService(
+                        sp.GetRequiredService<NexusSettings>(),
+                        sp.GetRequiredService<IHistoryService>()));
 
                     // UI
                     services.AddSingleton<IUserInterface, UserInterface>(sp => new UserInterface(
@@ -88,7 +92,8 @@ namespace NexusShell
                         sp.GetRequiredService<ISessionOrchestrator>(),
                         sp.GetRequiredService<IChatPersistenceService>(),
                         sp.GetRequiredService<ICliExecutionService>(),
-                        sp.GetRequiredService<ICloudSyncService>()));
+                        sp.GetRequiredService<ICloudSyncService>(),
+                        sp.GetRequiredService<IPlanService>()));
                 });
         }
     }

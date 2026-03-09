@@ -8,6 +8,12 @@ Note: NexusShell version must stay in sync with `APP_VERSION` in `Program.cs` an
 
 ---
 
+## [v19.0.0] - 2026-03-09
+
+### Added
+- `P` keyboard shortcut on Hub dashboard opens a plan wizard that scaffolds a plan + Gemini prompt pair in `conductor/plans/[project]/` and appends a pending entry to `conductor/NEXT.md`.
+- New `IPlanService` interface and `PlanService` implementation.
+
 ## [Unreleased]
 
 ### Added
